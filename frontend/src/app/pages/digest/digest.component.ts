@@ -1,6 +1,8 @@
-import { Component, ElementRef, OnInit, ViewChild } from '@angular/core';
+import { Component, ElementRef, OnDestroy, OnInit, ViewChild } from '@angular/core';
+import { Subscription, switchMap, timer } from 'rxjs';
 import { AppNavComponent } from '../../components/app-nav/app-nav.component';
 import { EmailListComponent } from '../../components/email-list/email-list.component';
+import { BUILD_VERSION } from '../../build-version';
 import {
   Category,
   Digest,
@@ -8,7 +10,7 @@ import {
   EmailSummary,
   SummarizedSection,
   SystemStatus,
-  TriageJobResult,
+  TriageProgress,
   withoutFixtureDigest,
   withoutFixtures
 } from '../../models/email.model';
@@ -20,15 +22,19 @@ import { ApiService, describeHttpError } from '../../services/api.service';
   imports: [EmailListComponent, AppNavComponent],
   templateUrl: './digest.component.html'
 })
-export class DigestComponent implements OnInit {
+export class DigestComponent implements OnInit, OnDestroy {
   @ViewChild('statusDialog') statusDialog?: ElementRef<HTMLDialogElement>;
 
+  readonly frontendVersion = BUILD_VERSION;
   digest: Digest | null = null;
   status: SystemStatus | null = null;
   error: string | null = null;
   running = false;
-  job: TriageJobResult | null = null;
+  includeRead = false;
+  job: TriageProgress | null = null;
   extra: Partial<Record<Category, EmailSummary[]>> = {};
+
+  private progressPoll: Subscription | null = null;
 
   constructor(private readonly api: ApiService) {}
 
@@ -36,9 +42,13 @@ export class DigestComponent implements OnInit {
     this.reload();
   }
 
+  ngOnDestroy(): void {
+    this.stopProgressPoll();
+  }
+
   reload(): void {
     this.extra = {};
-    this.api.digest().subscribe({
+    this.api.digest(this.includeRead).subscribe({
       next: (digest) => {
         this.digest = withoutFixtureDigest(digest);
       },
@@ -56,13 +66,18 @@ export class DigestComponent implements OnInit {
     });
   }
 
+  setIncludeRead(includeRead: boolean): void {
+    this.includeRead = includeRead;
+    this.reload();
+  }
+
   runTriage(): void {
     this.running = true;
+    this.error = null;
     this.api.runTriage().subscribe({
-      next: (job) => {
-        this.job = job;
-        this.running = false;
-        this.reload();
+      next: (progress) => {
+        this.job = progress;
+        this.startProgressPoll();
       },
       error: (err: unknown) => {
         this.running = false;
@@ -71,8 +86,73 @@ export class DigestComponent implements OnInit {
     });
   }
 
+  progressLine(): string {
+    if (!this.job) {
+      return '';
+    }
+    const j = this.job;
+    const classified = j.classifiedByRule + j.classifiedByLlm + j.fallback;
+    const phaseLabel = this.phaseLabel(j.phase);
+    const parts = [phaseLabel];
+    if (j.phase === 'DOWNLOADING' || j.ingested + j.skipped + j.ingestFailed > 0) {
+      parts.push(`downloaded ${j.ingested}, skipped ${j.skipped}` + (j.ingestFailed ? `, failed ${j.ingestFailed}` : ''));
+    }
+    if (j.phase === 'CLASSIFYING' || j.phase === 'RANKING' || j.phase === 'DONE' || j.phase === 'FAILED' || classified > 0) {
+      const ofTotal = j.toClassify > 0 ? ` / ${j.toClassify}` : '';
+      parts.push(`classified ${classified}${ofTotal} (rules ${j.classifiedByRule}, LLM ${j.classifiedByLlm}, fallback ${j.fallback})`);
+    }
+    return parts.join(' · ');
+  }
+
+  private phaseLabel(phase: string): string {
+    switch (phase) {
+      case 'IDLE':
+        return 'Idle';
+      case 'STARTING_LLM':
+        return 'Starting LLM…';
+      case 'DOWNLOADING':
+        return 'Downloading mail…';
+      case 'CLASSIFYING':
+        return 'Classifying…';
+      case 'RANKING':
+        return 'Ranking…';
+      case 'DONE':
+        return 'Done';
+      case 'FAILED':
+        return 'Failed';
+      default:
+        return phase;
+    }
+  }
+
+  private startProgressPoll(): void {
+    this.stopProgressPoll();
+    this.progressPoll = timer(0, 500)
+      .pipe(switchMap(() => this.api.triageProgress()))
+      .subscribe({
+        next: (progress) => {
+          this.job = progress;
+          if (!progress.running) {
+            this.running = false;
+            this.stopProgressPoll();
+            this.reload();
+          }
+        },
+        error: (err: unknown) => {
+          this.running = false;
+          this.stopProgressPoll();
+          this.error = describeHttpError(err, 'Failed to read triage progress');
+        }
+      });
+  }
+
+  private stopProgressPoll(): void {
+    this.progressPoll?.unsubscribe();
+    this.progressPoll = null;
+  }
+
   showMore(category: Category, already: number): void {
-    this.api.categoryPage(category, already, 5).subscribe({
+    this.api.categoryPage(category, already, 5, this.includeRead).subscribe({
       next: (page) => {
         const current = this.extra[category] ?? [];
         this.extra = { ...this.extra, [category]: [...current, ...withoutFixtures(page.items)] };
@@ -124,7 +204,7 @@ export class DigestComponent implements OnInit {
       return '';
     }
     if (this.status.mailSource === 'imap') {
-      return `Mail is read from IMAP ${this.status.imapHost} when you run triage or the nightly job. Nothing is downloading while this page is open.`;
+      return `Mail is read from IMAP ${this.status.imapHost} (INBOX only; archived mail is skipped). Triage downloads and rates unread and read mail; the digest hides read unless Include read is on. Nothing downloads while this page is open.`;
     }
     return 'Mail source is local files (testdata), not your inbox.';
   }

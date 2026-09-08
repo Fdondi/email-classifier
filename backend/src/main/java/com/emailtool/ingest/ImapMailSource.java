@@ -18,10 +18,9 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Date;
-import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Properties;
-import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -36,7 +35,7 @@ public class ImapMailSource implements MailSource {
     }
 
     @Override
-    public PollResult poll(MailPollOptions options) {
+    public PollResult poll() {
         AppProperties.Imap imap = properties.getMail().getImap();
         if (imap.getUsername() == null
                 || imap.getUsername().isBlank()
@@ -61,7 +60,8 @@ public class ImapMailSource implements MailSource {
         Store store = null;
         Folder folder = null;
         try {
-            store = session.getStore(protocol);
+            boolean gmail = GmailImapSupport.isGmailHost(imap.getHost());
+            store = gmail ? GmailImapSupport.openStore(session, imap.isSsl()) : session.getStore(protocol);
             store.connect(imap.getHost(), imap.getPort(), imap.getUsername(), imap.getPassword());
             folder = store.getFolder(imap.getFolder());
             if (folder == null || !folder.exists()) {
@@ -82,22 +82,23 @@ public class ImapMailSource implements MailSource {
             List<DatedMessage> dated = new ArrayList<>();
             List<MailboxVisibility> visibility = new ArrayList<>();
             for (Message message : found) {
-                boolean seen = message.isSet(Flags.Flag.SEEN);
-                boolean visible = ImapFolderPolicy.digestVisible(seen, options.includeRead());
+                boolean unread = !message.isSet(Flags.Flag.SEEN);
                 String key = sourceKey(imap, uidFolder, message);
-                visibility.add(new MailboxVisibility(key, visible));
-                dated.add(new DatedMessage(message, sortDate(message).toInstant(), seen, key));
+                visibility.add(new MailboxVisibility(key, unread));
+                dated.add(new DatedMessage(message, sortDate(message).toInstant(), unread, key));
             }
-            List<DatedMessage> candidates = dated.stream()
-                    .filter(row -> options.includeRead() || !row.seen())
-                    .toList();
+            // Download and rate everything still in the live folder; UI filters read vs unread.
             List<DatedMessage> picked = ImapWindow.select(
-                    candidates, DatedMessage::when, now, recent, fill, Math.max(0, imap.getMaxMessages()));
+                    dated, DatedMessage::when, now, recent, fill, Math.max(0, imap.getMaxMessages()));
             int recentCount = 0;
+            int unreadCount = 0;
             Instant recentSince = now.minus(recent);
             for (DatedMessage row : picked) {
                 if (!row.when().isBefore(recentSince)) {
                     recentCount++;
+                }
+                if (row.unread()) {
+                    unreadCount++;
                 }
             }
             List<RawMessage> result = new ArrayList<>();
@@ -108,21 +109,28 @@ public class ImapMailSource implements MailSource {
             if (toFetch.length > 0) {
                 folder.fetch(toFetch, profile);
             }
+            Map<Integer, Long> gmailMsgIds =
+                    gmail ? GmailImapSupport.fetchMsgIds(folder, toFetch) : Map.of();
             for (DatedMessage row : picked) {
                 Message message = row.message();
                 ByteArrayOutputStream buffer = new ByteArrayOutputStream();
                 message.writeTo(buffer);
-                result.add(new RawMessage(row.sourceKey(), row.when().toEpochMilli(), buffer.toByteArray()));
+                Long gmailMsgId = gmailMsgIds.get(message.getMessageNumber());
+                result.add(new RawMessage(
+                        row.sourceKey(),
+                        row.when().toEpochMilli(),
+                        buffer.toByteArray(),
+                        row.unread(),
+                        gmailMsgId));
             }
             log.info(
-                    "IMAP fetched {} messages ({} from last {}h, {} older within {}d, includeRead={}, scanned={}) from {}/{}",
+                    "IMAP fetched {} messages ({} unread, {} from last {}h, {} older within {}d) from {}/{}",
                     result.size(),
+                    unreadCount,
                     recentCount,
                     recent.toHours(),
                     result.size() - recentCount,
                     fill.toDays(),
-                    options.includeRead(),
-                    dated.size(),
                     imap.getHost(),
                     imap.getFolder());
             return new PollResult(result, visibility);
@@ -136,16 +144,9 @@ public class ImapMailSource implements MailSource {
     private Message[] search(Folder folder, AppProperties.Imap imap) throws MessagingException {
         Date since = Date.from(Instant.now().minus(fillWindow(imap)));
         SearchTerm byDate = new ReceivedDateTerm(ComparisonTerm.GE, since);
-        // Always search the full date window (including read) so we can hide read/archived
-        // mail already in the local digest. Unread-only selection happens after FLAGS fetch.
         return folder.search(byDate);
     }
 
-    /**
-     * Marks source keys that fell out of the live folder within the fill window as not
-     * digest-visible. Implemented in {@link IngestService} using date + prefix matching;
-     * this helper only builds the IMAP source-key prefix for the open folder.
-     */
     static String folderKeyPrefix(AppProperties.Imap imap) {
         return "imap://" + imap.getUsername() + "@" + imap.getHost() + "/" + imap.getFolder() + ";UID=";
     }
@@ -175,7 +176,7 @@ public class ImapMailSource implements MailSource {
         return Date.from(Instant.EPOCH);
     }
 
-    private record DatedMessage(Message message, Instant when, boolean seen, String sourceKey) {}
+    private record DatedMessage(Message message, Instant when, boolean unread, String sourceKey) {}
 
     private static void close(Folder folder, Store store) {
         if (folder != null && folder.isOpen()) {

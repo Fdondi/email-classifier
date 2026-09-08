@@ -7,11 +7,12 @@
     <h1>{{ email.subject }}</h1>
     <p class="muted">
       {{ email.fromDisplayName || email.fromAddress }} · {{ email.dateSent | date: 'medium' }}
-      @if (gmailUrl(email.messageId); as gmail) {
-        ·
-        <a class="link" [href]="gmail" target="_blank" rel="noopener noreferrer">Open in Gmail</a>
-      }
     </p>
+    @if (email.gmailUrl) {
+      <p>
+        <a class="button" [href]="email.gmailUrl" target="_blank" rel="noopener noreferrer">Open in Gmail</a>
+      </p>
+    }
     <label class="category-label">
       Category
       <select
@@ -26,6 +27,11 @@
         }
       </select>
     </label>
+    @if (email.userHidden) {
+      <button type="button" class="button-quiet" (click)="unhide()" [disabled]="savingVisibility">Unhide</button>
+    } @else {
+      <button type="button" class="button-quiet" (click)="hide()" [disabled]="savingVisibility">Hide</button>
+    }
     <p>{{ email.summary }}</p>
     @if (email.injectionSuspected) {
       <p class="error">Quarantined: injection suspected</p>
@@ -33,13 +39,20 @@
     @if (email.needsManualReview) {
       <p class="error">Needs manual review</p>
     }
-    @if (email.remoteImageCount > 0 && !email.imagesLoaded) {
-      <button type="button" class="button" (click)="loadImages()" [disabled]="loadingImages">
-        Load {{ email.remoteImageCount }} remote images
+    <p>
+      <button type="button" class="button-quiet" (click)="toggleLocalPreview()">
+        {{ showLocalPreview ? 'Hide local preview' : 'Show local preview' }}
       </button>
-    }
-    @if (bodyUrl) {
-      <iframe class="body-frame" sandbox [src]="bodyUrl" title="Email body"></iframe>
+    </p>
+    @if (showLocalPreview) {
+      @if (email.remoteImageCount > 0 && !email.imagesLoaded) {
+        <button type="button" class="button" (click)="loadImages()" [disabled]="loadingImages">
+          Load {{ email.remoteImageCount }} remote images
+        </button>
+      }
+      @if (bodyUrl) {
+        <iframe class="body-frame" sandbox [src]="bodyUrl" title="Email body"></iframe>
+      }
     }
   }
 </section>

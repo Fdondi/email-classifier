@@ -1,5 +1,6 @@
 package com.emailtool.api;
 
+import com.emailtool.api.dto.TriageProgressDto;
 import com.emailtool.api.dto.TriageRunDto;
 import com.emailtool.job.TriageJobService;
 import com.emailtool.job.TriageRunRecorder;
@@ -23,8 +24,13 @@ public class JobController {
     }
 
     @PostMapping("/triage")
-    public TriageJobService.TriageJobResult triage(@RequestParam(defaultValue = "ui") String source) {
-        return triageJobService.run(source);
+    public TriageProgressDto triage(@RequestParam(defaultValue = "ui") String source) {
+        return triageJobService.startAsync(source);
+    }
+
+    @GetMapping("/triage")
+    public TriageProgressDto triageProgress() {
+        return triageJobService.progress();
     }
 
     @GetMapping("/runs")

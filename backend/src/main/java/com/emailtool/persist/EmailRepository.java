@@ -14,6 +14,10 @@ public interface EmailRepository extends JpaRepository<Email, Long> {
 
     Optional<Email> findByMessageId(String messageId);
 
+    Optional<Email> findBySourcePath(String sourcePath);
+
+    List<Email> findBySourcePathStartingWith(String sourcePathPrefix);
+
     List<Email> findByCategoryIsNull();
 
     long countByCategoryIsNull();

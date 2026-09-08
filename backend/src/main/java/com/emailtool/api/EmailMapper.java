@@ -24,7 +24,8 @@ public final class EmailMapper {
                 email.getBatchRank(),
                 email.isInjectionSuspected(),
                 email.isNeedsManualReview(),
-                email.getClassificationSource() == null ? null : email.getClassificationSource().name());
+                email.getClassificationSource() == null ? null : email.getClassificationSource().name(),
+                GmailWebLinks.url(email.getGmailMsgId(), email.getMessageId()));
     }
 
     public static String cap(String value, int max) {

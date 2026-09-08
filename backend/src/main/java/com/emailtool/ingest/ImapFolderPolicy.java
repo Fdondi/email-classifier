@@ -34,8 +34,4 @@ public final class ImapFolderPolicy {
                             + " archived mail is excluded completely.");
         }
     }
-
-    public static boolean digestVisible(boolean seen, boolean includeRead) {
-        return !seen || includeRead;
-    }
 }

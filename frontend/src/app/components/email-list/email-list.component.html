@@ -4,7 +4,12 @@
   <ul class="email-list">
     @for (email of emails; track email.id) {
       <li class="email-item">
-        <a class="email-row" [routerLink]="['/email', email.id]">
+        <a
+          class="email-row"
+          [href]="email.gmailUrl || '/email/' + email.id"
+          [attr.target]="email.gmailUrl ? '_blank' : null"
+          [attr.rel]="email.gmailUrl ? 'noopener noreferrer' : null"
+          (click)="openRow(email, $event)">
           <span class="email-line1">
             <span class="email-subject">{{ email.subject }}</span>
             <span class="email-meta">{{ email.fromDisplayName || email.fromAddress }}</span>
@@ -17,18 +22,37 @@
             <span class="email-meta">{{ email.dateSent | date: 'medium' }}</span>
           </span>
         </a>
-        <select
-          class="category-select"
-          [disabled]="busyId === email.id"
-          (change)="reassign(email, $event)"
-          [attr.aria-label]="'Category for ' + (email.subject || 'email')">
-          @if (!email.category) {
-            <option value="" disabled selected>Unclassified</option>
+        <div class="email-actions">
+          @if (recoveryMode) {
+            <button
+              type="button"
+              class="button-quiet"
+              [disabled]="busyId === email.id"
+              (click)="unhide(email, $event)">
+              Unhide
+            </button>
+          } @else {
+            <button
+              type="button"
+              class="button-quiet"
+              [disabled]="busyId === email.id"
+              (click)="hide(email, $event)">
+              Hide
+            </button>
           }
-          @for (category of categories; track category) {
-            <option [value]="category" [selected]="email.category === category">{{ label(category) }}</option>
-          }
-        </select>
+          <select
+            class="category-select"
+            [disabled]="busyId === email.id"
+            (change)="reassign(email, $event)"
+            [attr.aria-label]="'Category for ' + (email.subject || 'email')">
+            @if (!email.category) {
+              <option value="" disabled selected>Unclassified</option>
+            }
+            @for (category of categories; track category) {
+              <option [value]="category" [selected]="email.category === category">{{ label(category) }}</option>
+            }
+          </select>
+        </div>
       </li>
     }
   </ul>

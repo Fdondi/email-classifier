@@ -79,8 +79,33 @@
 	<build>
 		<plugins>
 			<plugin>
+				<groupId>org.codehaus.mojo</groupId>
+				<artifactId>exec-maven-plugin</artifactId>
+				<version>3.5.0</version>
+				<executions>
+					<execution>
+						<id>write-build-version</id>
+						<phase>generate-resources</phase>
+						<goals>
+							<goal>exec</goal>
+						</goals>
+						<configuration>
+							<executable>node</executable>
+							<arguments>
+								<argument>${project.basedir}/../scripts/build/write-build-version.mjs</argument>
+								<argument>--backend-only</argument>
+							</arguments>
+						</configuration>
+					</execution>
+				</executions>
+			</plugin>
+			<plugin>
 				<groupId>org.springframework.boot</groupId>
 				<artifactId>spring-boot-maven-plugin</artifactId>
+				<configuration>
+					<!-- Default fork=true starts a second java.exe. Ctrl+C often kills only Maven and leaves 8080 bound. -->
+					<fork>false</fork>
+				</configuration>
 			</plugin>
 		</plugins>
 	</build>

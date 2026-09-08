@@ -21,4 +21,6 @@ public record EmailDetailDto(
         int remoteImageCount,
         String classificationSource,
         String language,
-        String messageId) {}
+        String messageId,
+        boolean userHidden,
+        String gmailUrl) {}

@@ -24,6 +24,10 @@ public class Email {
     @Column(name = "message_id")
     private String messageId;
 
+    /** Gmail IMAP X-GM-MSGID (64-bit). Used for mail.google.com/#all/<hex> deep links. */
+    @Column(name = "gmail_msg_id")
+    private Long gmailMsgId;
+
     @Column(name = "source_path", nullable = false)
     private String sourcePath;
 
@@ -128,6 +132,15 @@ public class Email {
     @Column(name = "digest_visible", nullable = false)
     private boolean digestVisible = true;
 
+    @JdbcTypeCode(SqlTypes.INTEGER)
+    @Column(name = "unread", nullable = false)
+    private boolean unread = true;
+
+    /** User hid this mail in the app (local). Not IMAP archive; ingest must not clear this. */
+    @JdbcTypeCode(SqlTypes.INTEGER)
+    @Column(name = "user_hidden", nullable = false)
+    private boolean userHidden = false;
+
     public Long getId() {
         return id;
     }
@@ -142,6 +155,14 @@ public class Email {
 
     public void setMessageId(String messageId) {
         this.messageId = messageId;
+    }
+
+    public Long getGmailMsgId() {
+        return gmailMsgId;
+    }
+
+    public void setGmailMsgId(Long gmailMsgId) {
+        this.gmailMsgId = gmailMsgId;
     }
 
     public String getSourcePath() {
@@ -414,5 +435,21 @@ public class Email {
 
     public void setDigestVisible(boolean digestVisible) {
         this.digestVisible = digestVisible;
+    }
+
+    public boolean isUnread() {
+        return unread;
+    }
+
+    public void setUnread(boolean unread) {
+        this.unread = unread;
+    }
+
+    public boolean isUserHidden() {
+        return userHidden;
+    }
+
+    public void setUserHidden(boolean userHidden) {
+        this.userHidden = userHidden;
     }
 }

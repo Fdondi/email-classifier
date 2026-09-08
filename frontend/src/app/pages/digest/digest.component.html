@@ -1,12 +1,16 @@
 <section class="page">
   <header class="toolbar">
     <h1>Email digest</h1>
-    <app-nav [spamCount]="digest?.spamCount ?? null" />
+    <app-nav [spamCount]="digest?.spamCount ?? null" [hiddenCount]="digest?.hiddenCount ?? null" />
     @if (status) {
       <button type="button" class="info-button" (click)="openStatusInfo()" aria-haspopup="dialog" aria-label="Mail and LLM status">
         i
       </button>
     }
+    <label class="include-read">
+      <input type="checkbox" [checked]="includeRead" (change)="setIncludeRead($any($event.target).checked)" />
+      Include read
+    </label>
     <button type="button" class="button" (click)="runTriage()" [disabled]="running">
       {{ running ? 'Running…' : 'Run triage' }}
     </button>
@@ -16,6 +20,7 @@
     <h2>Mail and LLM</h2>
     <p>{{ mailInfo() }}</p>
     <p>{{ llmInfo() }}</p>
+    <p>Build versions (VERSION.md at build): ui {{ frontendVersion }} · api {{ status?.buildVersion ?? '…' }}</p>
     <button type="button" class="button" (click)="closeStatusInfo()">Close</button>
   </dialog>
 
@@ -32,9 +37,8 @@
     <p class="error">{{ digest?.lastJobError }}</p>
   }
   @if (job) {
-    <p class="muted">
-      Ingested {{ job.ingested }}, skipped {{ job.skipped }}, rules {{ job.classifiedByRule }},
-      LLM {{ job.classifiedByLlm }}, fallback {{ job.fallback }}
+    <p class="muted" [attr.aria-live]="running ? 'polite' : null">
+      {{ progressLine() }}
     </p>
     @if (job.errors.length) {
       <ul class="error">
@@ -49,14 +53,14 @@
     @if (digest.quarantine.length) {
       <section class="block quarantine">
         <h2>Quarantine</h2>
-        <app-email-list [emails]="digest.quarantine" (categoryChanged)="reload()" (failed)="error = $event" />
+        <app-email-list [emails]="digest.quarantine" (categoryChanged)="reload()" (visibilityChanged)="reload()" (failed)="error = $event" />
       </section>
     }
 
     @if (digest.actionNeeded.length) {
       <section class="block">
         <h2>Action needed</h2>
-        <app-email-list [emails]="digest.actionNeeded" (categoryChanged)="reload()" (failed)="error = $event" />
+        <app-email-list [emails]="digest.actionNeeded" (categoryChanged)="reload()" (visibilityChanged)="reload()" (failed)="error = $event" />
       </section>
     } @else {
       <p class="empty-category">Action needed: nothing.</p>
@@ -68,11 +72,11 @@
         <div class="split">
           <div>
             <h3>By urgency</h3>
-            <app-email-list [emails]="digest.events.byUrgency" (categoryChanged)="reload()" (failed)="error = $event" />
+            <app-email-list [emails]="digest.events.byUrgency" (categoryChanged)="reload()" (visibilityChanged)="reload()" (failed)="error = $event" />
           </div>
           <div>
             <h3>By importance</h3>
-            <app-email-list [emails]="digest.events.byImportance" (categoryChanged)="reload()" (failed)="error = $event" />
+            <app-email-list [emails]="digest.events.byImportance" (categoryChanged)="reload()" (visibilityChanged)="reload()" (failed)="error = $event" />
           </div>
         </div>
       </section>
@@ -86,11 +90,11 @@
         <div class="split">
           <div>
             <h3>By urgency</h3>
-            <app-email-list [emails]="digest.jobOffers.byUrgency" (categoryChanged)="reload()" (failed)="error = $event" />
+            <app-email-list [emails]="digest.jobOffers.byUrgency" (categoryChanged)="reload()" (visibilityChanged)="reload()" (failed)="error = $event" />
           </div>
           <div>
             <h3>By importance</h3>
-            <app-email-list [emails]="digest.jobOffers.byImportance" (categoryChanged)="reload()" (failed)="error = $event" />
+            <app-email-list [emails]="digest.jobOffers.byImportance" (categoryChanged)="reload()" (visibilityChanged)="reload()" (failed)="error = $event" />
           </div>
         </div>
       </section>
@@ -101,7 +105,7 @@
     @if (hasSummarized(digest.promotions, 'PROMOTION')) {
       <section class="block">
         <h2>Promotions</h2>
-        <app-email-list [emails]="digest.promotions.top.concat(extras('PROMOTION'))" (categoryChanged)="reload()" (failed)="error = $event" />
+        <app-email-list [emails]="digest.promotions.top.concat(extras('PROMOTION'))" (categoryChanged)="reload()" (visibilityChanged)="reload()" (failed)="error = $event" />
         @if (digest.promotions.total > digest.promotions.top.length + extras('PROMOTION').length) {
           <button type="button" class="button" (click)="showMore('PROMOTION', digest.promotions.top.length + extras('PROMOTION').length)">
             Show 5 more
@@ -115,7 +119,7 @@
     @if (hasSummarized(digest.newslettersTech, 'NEWSLETTER_TECH')) {
       <section class="block">
         <h2>Tech newsletters</h2>
-        <app-email-list [emails]="digest.newslettersTech.top.concat(extras('NEWSLETTER_TECH'))" (categoryChanged)="reload()" (failed)="error = $event" />
+        <app-email-list [emails]="digest.newslettersTech.top.concat(extras('NEWSLETTER_TECH'))" (categoryChanged)="reload()" (visibilityChanged)="reload()" (failed)="error = $event" />
         @if (digest.newslettersTech.total > digest.newslettersTech.top.length + extras('NEWSLETTER_TECH').length) {
           <button type="button" class="button" (click)="showMore('NEWSLETTER_TECH', digest.newslettersTech.top.length + extras('NEWSLETTER_TECH').length)">
             Show 5 more
@@ -129,7 +133,7 @@
     @if (hasSummarized(digest.newslettersOther, 'NEWSLETTER_OTHER')) {
       <section class="block">
         <h2>Other newsletters</h2>
-        <app-email-list [emails]="digest.newslettersOther.top.concat(extras('NEWSLETTER_OTHER'))" (categoryChanged)="reload()" (failed)="error = $event" />
+        <app-email-list [emails]="digest.newslettersOther.top.concat(extras('NEWSLETTER_OTHER'))" (categoryChanged)="reload()" (visibilityChanged)="reload()" (failed)="error = $event" />
         @if (digest.newslettersOther.total > digest.newslettersOther.top.length + extras('NEWSLETTER_OTHER').length) {
           <button type="button" class="button" (click)="showMore('NEWSLETTER_OTHER', digest.newslettersOther.top.length + extras('NEWSLETTER_OTHER').length)">
             Show 5 more
@@ -143,7 +147,7 @@
     @if (hasSummarized(digest.other, 'OTHER')) {
       <section class="block">
         <h2>Other</h2>
-        <app-email-list [emails]="digest.other.top.concat(extras('OTHER'))" (categoryChanged)="reload()" (failed)="error = $event" />
+        <app-email-list [emails]="digest.other.top.concat(extras('OTHER'))" (categoryChanged)="reload()" (visibilityChanged)="reload()" (failed)="error = $event" />
         @if (digest.other.total > digest.other.top.length + extras('OTHER').length) {
           <button type="button" class="button" (click)="showMore('OTHER', digest.other.top.length + extras('OTHER').length)">
             Show 5 more

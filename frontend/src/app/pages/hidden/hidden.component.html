@@ -1,0 +1,17 @@
+<section class="page">
+  <header class="toolbar">
+    <h1>Hidden (local)</h1>
+    <app-nav [hiddenCount]="emails.length" />
+  </header>
+  <p class="muted">Hidden only in this app for now. Unhide to bring them back to the digest.</p>
+  @if (error) {
+    <p class="error">{{ error }}</p>
+  }
+  <app-email-list
+    [emails]="emails"
+    [recoveryMode]="true"
+    emptyText="No hidden mail"
+    (categoryChanged)="reload()"
+    (visibilityChanged)="reload()"
+    (failed)="error = $event" />
+</section>

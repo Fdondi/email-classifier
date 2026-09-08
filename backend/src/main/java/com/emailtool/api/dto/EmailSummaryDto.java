@@ -19,4 +19,5 @@ public record EmailSummaryDto(
         Integer batchRank,
         boolean injectionSuspected,
         boolean needsManualReview,
-        String classificationSource) {}
+        String classificationSource,
+        String gmailUrl) {}

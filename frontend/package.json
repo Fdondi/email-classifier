@@ -3,8 +3,12 @@
   "version": "0.0.0",
   "scripts": {
     "ng": "ng",
+    "sync-version": "node ../scripts/build/write-build-version.mjs --frontend-only",
+    "prestart": "npm run sync-version",
     "start": "ng serve --proxy-config proxy.conf.json",
+    "prebuild": "npm run sync-version",
     "build": "ng build",
+    "prewatch": "npm run sync-version",
     "watch": "ng build --watch --configuration development",
     "test": "ng test",
     "lint": "eslint \"src/**/*.ts\""

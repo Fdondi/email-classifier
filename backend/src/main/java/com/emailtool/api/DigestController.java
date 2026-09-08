@@ -22,21 +22,31 @@ public class DigestController {
     }
 
     @GetMapping("/digest")
-    public DigestDto digest() {
-        return digestService.digest();
+    public DigestDto digest(@RequestParam(defaultValue = "false") boolean includeRead) {
+        return digestService.digest(includeRead);
     }
 
     @GetMapping("/digest/category/{category}")
     public CategoryPageDto category(
             @PathVariable Category category,
             @RequestParam(defaultValue = "0") int offset,
-            @RequestParam(defaultValue = "5") int limit) {
-        return digestService.page(category, offset, limit);
+            @RequestParam(defaultValue = "5") int limit,
+            @RequestParam(defaultValue = "false") boolean includeRead) {
+        return digestService.page(category, offset, limit, includeRead);
     }
 
     @GetMapping("/digest/spam")
     public List<EmailSummaryDto> spam(
-            @RequestParam(defaultValue = "0") int offset, @RequestParam(defaultValue = "50") int limit) {
-        return digestService.page(Category.SPAM, offset, limit).items();
+            @RequestParam(defaultValue = "0") int offset,
+            @RequestParam(defaultValue = "50") int limit,
+            @RequestParam(defaultValue = "false") boolean includeRead) {
+        return digestService.page(Category.SPAM, offset, limit, includeRead).items();
+    }
+
+    @GetMapping("/digest/hidden")
+    public List<EmailSummaryDto> hidden(
+            @RequestParam(defaultValue = "0") int offset,
+            @RequestParam(defaultValue = "50") int limit) {
+        return digestService.hidden(offset, limit);
     }
 }

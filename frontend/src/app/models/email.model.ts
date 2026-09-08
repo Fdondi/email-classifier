@@ -41,6 +41,7 @@ export interface EmailSummary {
   injectionSuspected: boolean;
   needsManualReview: boolean;
   classificationSource: string | null;
+  gmailUrl: string | null;
 }
 
 export interface EmailDetail {
@@ -61,6 +62,8 @@ export interface EmailDetail {
   classificationSource: string | null;
   language: string | null;
   messageId: string | null;
+  userHidden: boolean;
+  gmailUrl: string | null;
 }
 
 export interface DualAxisSection {
@@ -84,6 +87,7 @@ export interface Digest {
   newslettersOther: SummarizedSection;
   other: SummarizedSection;
   spamCount: number;
+  hiddenCount: number;
   lastJobError: string | null;
 }
 
@@ -95,15 +99,32 @@ export interface CategoryPage {
   items: EmailSummary[];
 }
 
-export interface TriageJobResult {
+export type TriagePhase =
+  | 'IDLE'
+  | 'STARTING_LLM'
+  | 'DOWNLOADING'
+  | 'CLASSIFYING'
+  | 'RANKING'
+  | 'DONE'
+  | 'FAILED';
+
+export interface TriageProgress {
+  running: boolean;
+  phase: TriagePhase | string;
+  startedAt: string | null;
+  finishedAt: string | null;
   ingested: number;
   skipped: number;
   ingestFailed: number;
   classifiedByRule: number;
   classifiedByLlm: number;
   fallback: number;
+  toClassify: number;
   errors: string[];
 }
+
+/** @deprecated Prefer TriageProgress; kept for call sites that only need final counts. */
+export type TriageJobResult = TriageProgress;
 
 export interface TriageRun {
   id: number;
@@ -125,6 +146,7 @@ export interface TriageRun {
 }
 
 export interface SystemStatus {
+  buildVersion: string;
   mailSource: string;
   imapCredentialsPresent: boolean;
   imapHost: string;

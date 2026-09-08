@@ -29,6 +29,27 @@ class GpuOccupancyTest {
         GpuOccupancy occupancy =
                 GpuOccupancy.parse("1024, 24576, 23000", "111, C:\\Users\\x\\lms.exe, 1024 MiB").orElseThrow();
         assertFalse(occupancy.hasForeignCompute());
+        assertTrue(occupancy.hasChatModelCompute());
+    }
+
+    @Test
+    void llamaStillListedMeansGpuNotReleased() {
+        GpuOccupancy occupancy =
+                GpuOccupancy.parse("16000, 24576, 8000", "99, llama.dll, 15000 MiB").orElseThrow();
+        assertTrue(occupancy.stillHeldAfterUnload());
+        assertTrue(occupancy.heldAfterUnloadReason().contains("llama"));
+    }
+
+    @Test
+    void highUsedMemoryWithoutComputeIsStillHeld() {
+        GpuOccupancy occupancy = GpuOccupancy.parse("18000, 24576, 6000", "").orElseThrow();
+        assertTrue(occupancy.stillHeldAfterUnload());
+    }
+
+    @Test
+    void idleAfterUnload() {
+        GpuOccupancy occupancy = GpuOccupancy.parse("400, 24576, 24000", "").orElseThrow();
+        assertFalse(occupancy.stillHeldAfterUnload());
     }
 
     @Test

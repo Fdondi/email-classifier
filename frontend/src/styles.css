@@ -47,6 +47,12 @@ body {
   border-bottom-color: var(--accent);
 }
 
+.build-versions {
+  color: var(--muted);
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
 .run-head {
   display: flex;
   flex-wrap: wrap;
@@ -123,6 +129,31 @@ h3 {
 
 .email-item .email-row {
   min-width: 0;
+}
+
+.email-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.button-quiet {
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  padding: 4px 8px;
+  cursor: pointer;
+  font: inherit;
+}
+
+.button-quiet:hover:not(:disabled) {
+  color: var(--fg);
+  border-color: var(--fg);
+}
+
+.button-quiet:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .category-select {
@@ -234,6 +265,16 @@ h3 {
 .button:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+
+.include-read {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  color: var(--muted);
+  font-size: 0.9rem;
+  cursor: pointer;
+  user-select: none;
 }
 
 .link {

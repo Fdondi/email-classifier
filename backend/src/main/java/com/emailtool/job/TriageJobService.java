@@ -1,5 +1,6 @@
 package com.emailtool.job;
 
+import com.emailtool.api.dto.TriageProgressDto;
 import com.emailtool.classify.ClassifierJson;
 import com.emailtool.classify.ClassifierJsonParser;
 import com.emailtool.classify.LlmClassifier;
@@ -15,6 +16,8 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -24,6 +27,14 @@ import org.springframework.stereotype.Service;
 public class TriageJobService {
 
     private static final Logger log = LoggerFactory.getLogger(TriageJobService.class);
+
+    public static final String PHASE_IDLE = "IDLE";
+    public static final String PHASE_STARTING_LLM = "STARTING_LLM";
+    public static final String PHASE_DOWNLOADING = "DOWNLOADING";
+    public static final String PHASE_CLASSIFYING = "CLASSIFYING";
+    public static final String PHASE_RANKING = "RANKING";
+    public static final String PHASE_DONE = "DONE";
+    public static final String PHASE_FAILED = "FAILED";
 
     private final IngestService ingestService;
     private final RuleEngine ruleEngine;
@@ -36,6 +47,8 @@ public class TriageJobService {
     private final TriageRunRecorder triageRunRecorder;
     private final AppProperties properties;
 
+    private final AtomicBoolean running = new AtomicBoolean(false);
+    private final LiveProgress live = new LiveProgress();
     private volatile String lastError;
 
     public TriageJobService(
@@ -66,7 +79,35 @@ public class TriageJobService {
         if (!properties.isScheduleEnabled()) {
             return;
         }
-        run("schedule");
+        if (running.get()) {
+            log.info("Skipping scheduled triage; already running");
+            return;
+        }
+        try {
+            run("schedule");
+        } catch (IllegalStateException e) {
+            log.info("Skipping scheduled triage: {}", e.getMessage());
+        }
+    }
+
+    /** Start triage in the background. Returns current progress immediately. */
+    public TriageProgressDto startAsync(String source) {
+        if (!running.compareAndSet(false, true)) {
+            return progress();
+        }
+        live.begin();
+        Thread.ofVirtual().name("triage-job").start(() -> {
+            try {
+                runBody(source == null || source.isBlank() ? "ui" : source);
+            } finally {
+                running.set(false);
+            }
+        });
+        return progress();
+    }
+
+    public TriageProgressDto progress() {
+        return live.snapshot(running.get());
     }
 
     public TriageJobResult run() {
@@ -74,6 +115,18 @@ public class TriageJobService {
     }
 
     public TriageJobResult run(String source) {
+        if (!running.compareAndSet(false, true)) {
+            throw new IllegalStateException("Triage is already running");
+        }
+        live.begin();
+        try {
+            return runBody(source == null || source.isBlank() ? "ui" : source);
+        } finally {
+            running.set(false);
+        }
+    }
+
+    private TriageJobResult runBody(String source) {
         Instant started = Instant.now();
         List<String> errors = new ArrayList<>();
         IngestService.IngestStats ingestStats = new IngestService.IngestStats(0, 0, 0);
@@ -84,36 +137,58 @@ public class TriageJobService {
         boolean llmReady = false;
         TriageJobResult result;
         try {
+            live.setPhase(PHASE_STARTING_LLM);
             llmReady = llmRuntime.ensureReady();
             if (!llmReady) {
                 String reason = llmRuntime.lastError() == null
                         ? "Chat model is not loaded"
                         : llmRuntime.lastError();
                 errors.add(reason);
+                live.setErrors(errors);
                 log.warn("Skipping LLM: {}", reason);
             }
             try {
-                ingestStats = ingestService.ingest();
+                live.setPhase(PHASE_DOWNLOADING);
+                ingestStats = ingestService.ingest((ingested, skipped, failed) ->
+                        live.setIngest(ingested, skipped, failed));
+                live.setIngest(ingestStats.ingested(), ingestStats.skipped(), ingestStats.failed());
             } catch (RuntimeException e) {
                 errors.add(e.getMessage());
+                live.setErrors(errors);
                 log.warn("Mail ingest failed: {}", e.getMessage());
             }
             requeued = requeueStaleClassifications.requeue();
             if (requeued > 0) {
                 log.info("Requeued {} previously guessed emails for LLM", requeued);
             }
+            live.setPhase(PHASE_CLASSIFYING);
             List<Email> unclassified = emailRepository.findByCategoryIsNull();
+            int toClassify = 0;
             for (Email email : unclassified) {
+                if (email.isDigestVisible()) {
+                    toClassify++;
+                }
+            }
+            live.setToClassify(toClassify);
+            List<String> runErrors = new ArrayList<>(errors);
+            List<String> classificationErrors = new ArrayList<>();
+            int llmAttempts = 0;
+            for (Email email : unclassified) {
+                if (!email.isDigestVisible()) {
+                    continue;
+                }
                 try {
                     if (ruleEngine.classify(email)) {
                         stampVersions(email);
                         emailRepository.save(email);
                         byRule++;
+                        live.setClassified(byRule, byLlm, fallback);
                         continue;
                     }
                     if (!llmReady) {
                         continue;
                     }
+                    llmAttempts++;
                     Optional<ClassifierJson> classified = llmClassifier.classify(email);
                     if (classified.isPresent()) {
                         applyLlm(email, classified.get(), false);
@@ -122,18 +197,27 @@ public class TriageJobService {
                         applyLlm(email, parser.fallback(), true);
                         email.setOllamaError("LLM returned no valid JSON or was unreachable");
                         fallback++;
-                        errors.add("Email " + email.getId() + " left for manual review (LLM unavailable or invalid JSON)");
+                        classificationErrors.add(
+                                "Email " + email.getId() + " left for manual review (LLM unavailable or invalid JSON)");
+                        live.setErrors(collapsedErrors(runErrors, classificationErrors, llmAttempts));
                     }
                     emailRepository.save(email);
+                    live.setClassified(byRule, byLlm, fallback);
                 } catch (RuntimeException e) {
                     fallback++;
                     email.setNeedsManualReview(true);
                     email.setOllamaError(e.getMessage());
                     emailRepository.save(email);
-                    errors.add("Email " + email.getId() + ": " + e.getMessage());
+                    classificationErrors.add("Email " + email.getId() + ": " + e.getMessage());
+                    live.setClassified(byRule, byLlm, fallback);
+                    live.setErrors(collapsedErrors(runErrors, classificationErrors, llmAttempts));
                     log.warn("Classification failed for {}: {}", email.getId(), e.getMessage());
                 }
             }
+            errors.clear();
+            errors.addAll(collapsedErrors(runErrors, classificationErrors, llmAttempts));
+            live.setErrors(errors);
+            live.setPhase(PHASE_RANKING);
             rankingService.rankAll();
             result = new TriageJobResult(
                     ingestStats.ingested(),
@@ -143,6 +227,7 @@ public class TriageJobService {
                     byLlm,
                     fallback,
                     List.copyOf(errors));
+            live.finish(PHASE_DONE, result);
         } catch (RuntimeException e) {
             errors.add(e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());
             log.warn("Triage run failed: {}", e.getMessage());
@@ -154,6 +239,7 @@ public class TriageJobService {
                     byLlm,
                     fallback,
                     List.copyOf(errors));
+            live.finish(PHASE_FAILED, result);
         } finally {
             llmRuntime.releaseIfOwned();
         }
@@ -187,6 +273,50 @@ public class TriageJobService {
         email.setTaxonomyVersion(properties.getTaxonomyVersion());
     }
 
+    /**
+     * When every LLM attempt fails, keep a single summary line instead of one row per email.
+     */
+    static List<String> collapsedErrors(List<String> prefix, List<String> classificationErrors, int llmAttempts) {
+        List<String> out = new ArrayList<>(prefix);
+        if (classificationErrors.isEmpty()) {
+            return out;
+        }
+        if (llmAttempts > 0 && classificationErrors.size() == llmAttempts) {
+            String shared = sharedFailureDetail(classificationErrors);
+            if (shared != null) {
+                out.add("All " + llmAttempts + " emails failed: " + shared);
+            } else {
+                out.add("All " + llmAttempts + " emails failed LLM classification");
+            }
+            return out;
+        }
+        out.addAll(classificationErrors);
+        return out;
+    }
+
+    private static String sharedFailureDetail(List<String> classificationErrors) {
+        String firstDetail = failureDetail(classificationErrors.getFirst());
+        for (String line : classificationErrors) {
+            if (!firstDetail.equals(failureDetail(line))) {
+                return null;
+            }
+        }
+        return firstDetail;
+    }
+
+    private static String failureDetail(String line) {
+        int colon = line.indexOf(": ");
+        if (colon >= 0 && line.startsWith("Email ")) {
+            return line.substring(colon + 2);
+        }
+        String marker = " left for manual review ";
+        int at = line.indexOf(marker);
+        if (at >= 0) {
+            return line.substring(at + 1).trim();
+        }
+        return line;
+    }
+
     public String lastError() {
         return lastError;
     }
@@ -199,4 +329,84 @@ public class TriageJobService {
             int classifiedByLlm,
             int fallback,
             List<String> errors) {}
+
+    private static final class LiveProgress {
+        private volatile String phase = PHASE_IDLE;
+        private volatile Instant startedAt;
+        private volatile Instant finishedAt;
+        private final AtomicInteger ingested = new AtomicInteger();
+        private final AtomicInteger skipped = new AtomicInteger();
+        private final AtomicInteger ingestFailed = new AtomicInteger();
+        private final AtomicInteger classifiedByRule = new AtomicInteger();
+        private final AtomicInteger classifiedByLlm = new AtomicInteger();
+        private final AtomicInteger fallback = new AtomicInteger();
+        private final AtomicInteger toClassify = new AtomicInteger();
+        private volatile List<String> errors = List.of();
+
+        void begin() {
+            phase = PHASE_STARTING_LLM;
+            startedAt = Instant.now();
+            finishedAt = null;
+            ingested.set(0);
+            skipped.set(0);
+            ingestFailed.set(0);
+            classifiedByRule.set(0);
+            classifiedByLlm.set(0);
+            fallback.set(0);
+            toClassify.set(0);
+            errors = List.of();
+        }
+
+        void setPhase(String next) {
+            phase = next;
+        }
+
+        void setIngest(int ingestedCount, int skippedCount, int failedCount) {
+            ingested.set(ingestedCount);
+            skipped.set(skippedCount);
+            ingestFailed.set(failedCount);
+        }
+
+        void setToClassify(int total) {
+            toClassify.set(total);
+        }
+
+        void setClassified(int byRule, int byLlm, int fallbackCount) {
+            classifiedByRule.set(byRule);
+            classifiedByLlm.set(byLlm);
+            fallback.set(fallbackCount);
+        }
+
+        void setErrors(List<String> next) {
+            errors = List.copyOf(next);
+        }
+
+        void finish(String endPhase, TriageJobResult result) {
+            phase = endPhase;
+            finishedAt = Instant.now();
+            ingested.set(result.ingested());
+            skipped.set(result.skipped());
+            ingestFailed.set(result.ingestFailed());
+            classifiedByRule.set(result.classifiedByRule());
+            classifiedByLlm.set(result.classifiedByLlm());
+            fallback.set(result.fallback());
+            errors = List.copyOf(result.errors());
+        }
+
+        TriageProgressDto snapshot(boolean isRunning) {
+            return new TriageProgressDto(
+                    isRunning,
+                    phase,
+                    startedAt,
+                    finishedAt,
+                    ingested.get(),
+                    skipped.get(),
+                    ingestFailed.get(),
+                    classifiedByRule.get(),
+                    classifiedByLlm.get(),
+                    fallback.get(),
+                    toClassify.get(),
+                    errors);
+        }
+    }
 }

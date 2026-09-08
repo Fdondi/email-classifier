@@ -15,8 +15,10 @@ export class EmailDetailComponent implements OnInit {
   email: EmailDetail | null = null;
   error: string | null = null;
   bodyUrl: SafeResourceUrl | null = null;
+  showLocalPreview = false;
   loadingImages = false;
   savingCategory = false;
+  savingVisibility = false;
   readonly categories = CATEGORIES;
 
   constructor(
@@ -34,7 +36,6 @@ export class EmailDetailComponent implements OnInit {
     this.api.email(id).subscribe({
       next: (email) => {
         this.email = email;
-        this.setBodyUrl(email.id, false);
       },
       error: () => {
         this.error = 'Email not found';
@@ -46,16 +47,14 @@ export class EmailDetailComponent implements OnInit {
     return categoryLabel(category);
   }
 
-  /** Gmail web search by RFC822 Message-ID (works without Gmail API / thread ids). */
-  gmailUrl(messageId: string | null | undefined): string | null {
-    if (!messageId) {
-      return null;
+  toggleLocalPreview(): void {
+    if (!this.email) {
+      return;
     }
-    const id = messageId.replace(/^<|>$/g, '').trim();
-    if (!id) {
-      return null;
+    this.showLocalPreview = !this.showLocalPreview;
+    if (this.showLocalPreview && !this.bodyUrl) {
+      this.setBodyUrl(this.email.id, this.email.imagesLoaded);
     }
-    return `https://mail.google.com/mail/u/0/#search/rfc822msgid:${encodeURIComponent(id)}`;
   }
 
   reassign(event: Event): void {
@@ -95,6 +94,40 @@ export class EmailDetailComponent implements OnInit {
       error: () => {
         this.loadingImages = false;
         this.error = 'Could not load remote images';
+      }
+    });
+  }
+
+  hide(): void {
+    if (!this.email) {
+      return;
+    }
+    this.savingVisibility = true;
+    this.api.hideEmail(this.email.id).subscribe({
+      next: () => {
+        this.savingVisibility = false;
+        this.email = { ...this.email!, userHidden: true };
+      },
+      error: (err: unknown) => {
+        this.savingVisibility = false;
+        this.error = describeHttpError(err, 'Could not hide email');
+      }
+    });
+  }
+
+  unhide(): void {
+    if (!this.email) {
+      return;
+    }
+    this.savingVisibility = true;
+    this.api.unhideEmail(this.email.id).subscribe({
+      next: () => {
+        this.savingVisibility = false;
+        this.email = { ...this.email!, userHidden: false };
+      },
+      error: (err: unknown) => {
+        this.savingVisibility = false;
+        this.error = describeHttpError(err, 'Could not unhide email');
       }
     });
   }

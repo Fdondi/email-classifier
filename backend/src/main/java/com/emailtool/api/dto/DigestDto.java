@@ -12,4 +12,5 @@ public record DigestDto(
         SummarizedSectionDto newslettersOther,
         SummarizedSectionDto other,
         long spamCount,
+        long hiddenCount,
         String lastJobError) {}

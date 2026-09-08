@@ -2,6 +2,7 @@ package com.emailtool.api;
 
 import com.emailtool.api.dto.SystemStatusDto;
 import com.emailtool.config.AppProperties;
+import com.emailtool.config.BuildVersion;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import java.time.Duration;
 import java.util.List;
@@ -18,9 +19,11 @@ public class SystemStatusService {
     private static final Logger log = LoggerFactory.getLogger(SystemStatusService.class);
 
     private final AppProperties properties;
+    private final BuildVersion buildVersion;
 
-    public SystemStatusService(AppProperties properties) {
+    public SystemStatusService(AppProperties properties, BuildVersion buildVersion) {
         this.properties = properties;
+        this.buildVersion = buildVersion;
     }
 
     public SystemStatusDto status() {
@@ -34,6 +37,7 @@ public class SystemStatusService {
         LlmProbe probe = probeLlm();
         String configuredModel = properties.getLlm().getModel();
         return new SystemStatusDto(
+                buildVersion.get(),
                 properties.getMail().getSource() == null ? "maildir" : properties.getMail().getSource(),
                 imapReady,
                 imap.getHost(),

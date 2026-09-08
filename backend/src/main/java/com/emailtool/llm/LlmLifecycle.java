@@ -95,9 +95,18 @@ public class LlmLifecycle implements LlmRuntime {
             if (loadedByUs && loadedKey != null && properties.getLlm().isAutoUnload()) {
                 Path cli = resolveCli();
                 if (cli != null) {
+                    long started = System.currentTimeMillis();
                     CommandRunner.Result unloaded =
-                            commands.run(List.of(cli.toString(), "unload", loadedKey), Duration.ofMinutes(2));
-                    log.info("Unloaded {} (exit {})", loadedKey, unloaded.exitCode());
+                            commands.run(List.of(cli.toString(), "unload", loadedKey), Duration.ofMinutes(5));
+                    log.info(
+                            "lms unload {} (exit {}, {} ms)",
+                            loadedKey,
+                            unloaded.exitCode(),
+                            System.currentTimeMillis() - started);
+                    String remaining = waitForGpuReleased();
+                    if (remaining != null) {
+                        log.warn("GPU still occupied after unload: {}", remaining);
+                    }
                 }
             }
             loadedByUs = false;
@@ -109,7 +118,7 @@ public class LlmLifecycle implements LlmRuntime {
 
     private boolean prepare() {
         lastError = null;
-        if (!chatIds().isEmpty()) {
+        if (!loadedChatIds().isEmpty()) {
             return true;
         }
         if (!properties.getLlm().isAutoLoad()) {
@@ -121,7 +130,7 @@ public class LlmLifecycle implements LlmRuntime {
             lastError = "LM Studio CLI not found. Expected %USERPROFILE%\\.cache\\lm-studio\\bin\\lms.exe";
             return false;
         }
-        if (chatIds().isEmpty() && !serverReachable()) {
+        if (!serverReachable()) {
             int port = llmPort();
             CommandRunner.Result started =
                     commands.run(List.of(cli.toString(), "server", "start", "--port", String.valueOf(port)), Duration.ofMinutes(1));
@@ -134,7 +143,7 @@ public class LlmLifecycle implements LlmRuntime {
                 return false;
             }
         }
-        if (!chatIds().isEmpty()) {
+        if (!loadedChatIds().isEmpty()) {
             return true;
         }
         Optional<String> gpuBlock = gpuBusyReason();
@@ -156,7 +165,7 @@ public class LlmLifecycle implements LlmRuntime {
             return false;
         }
         if (!waitForChatModel()) {
-            lastError = "Chat model did not appear at " + properties.getLlm().getBaseUrl() + "/models after load";
+            lastError = "Chat model did not become loaded after lms load (checked /api/v0/models and lms ps)";
             return false;
         }
         loadedByUs = true;
@@ -165,6 +174,15 @@ public class LlmLifecycle implements LlmRuntime {
     }
 
     private Optional<String> gpuBusyReason() {
+        Optional<GpuOccupancy> occupancy = probeOccupancy();
+        if (occupancy.isEmpty()) {
+            return Optional.empty();
+        }
+        String reason = occupancy.get().busyReason(properties.getLlm().getMinFreeVramMib());
+        return reason == null ? Optional.empty() : Optional.of(reason);
+    }
+
+    private Optional<GpuOccupancy> probeOccupancy() {
         CommandRunner.Result gpu = commands.run(
                 List.of(
                         "nvidia-smi",
@@ -172,19 +190,37 @@ public class LlmLifecycle implements LlmRuntime {
                         "--format=csv,noheader,nounits"),
                 Duration.ofSeconds(10));
         if (gpu.exitCode() != 0) {
-            log.warn("nvidia-smi unavailable ({}). Trying to load anyway.", gpu.output().trim());
+            log.warn("nvidia-smi unavailable ({}).", gpu.output().trim());
             return Optional.empty();
         }
         CommandRunner.Result compute = commands.run(
                 List.of("nvidia-smi", "--query-compute-apps=pid,process_name,used_gpu_memory", "--format=csv,noheader"),
                 Duration.ofSeconds(10));
-        Optional<GpuOccupancy> occupancy = GpuOccupancy.parse(gpu.output(), compute.exitCode() == 0 ? compute.output() : "");
+        Optional<GpuOccupancy> occupancy =
+                GpuOccupancy.parse(gpu.output(), compute.exitCode() == 0 ? compute.output() : "");
         if (occupancy.isEmpty()) {
-            log.warn("Could not parse nvidia-smi output. Trying to load anyway.");
-            return Optional.empty();
+            log.warn("Could not parse nvidia-smi output.");
         }
-        String reason = occupancy.get().busyReason(properties.getLlm().getMinFreeVramMib());
-        return reason == null ? Optional.empty() : Optional.of(reason);
+        return occupancy;
+    }
+
+    /**
+     * {@code lms unload} can return before CUDA actually gives VRAM back. Poll until llama is gone
+     * or give up after a minute and report the remaining occupancy.
+     */
+    String waitForGpuReleased() {
+        long started = System.currentTimeMillis();
+        long deadline = started + 60_000;
+        Optional<GpuOccupancy> last = Optional.empty();
+        while (System.currentTimeMillis() < deadline) {
+            last = probeOccupancy();
+            if (last.isEmpty() || !last.get().stillHeldAfterUnload()) {
+                log.info("GPU released {} ms after unload", System.currentTimeMillis() - started);
+                return null;
+            }
+            sleep(500);
+        }
+        return last.map(GpuOccupancy::heldAfterUnloadReason).orElse("nvidia-smi did not confirm GPU idle");
     }
 
     private Optional<String> resolveModelKey(Path cli) {
@@ -229,27 +265,74 @@ public class LlmLifecycle implements LlmRuntime {
         return keys;
     }
 
-    private List<String> chatIds() {
+    /**
+     * Models currently loaded in memory. LM Studio's OpenAI {@code /v1/models} lists installed
+     * models even when none are loaded, so this uses {@code /api/v0/models} (state=loaded) and
+     * falls back to {@code lms ps}.
+     */
+    List<String> loadedChatIds() {
+        List<String> fromApi = loadedChatIdsFromNativeApi();
+        if (!fromApi.isEmpty()) {
+            return fromApi;
+        }
+        return loadedChatIdsFromCli();
+    }
+
+    private List<String> loadedChatIdsFromNativeApi() {
         try {
-            ModelsResponse response = modelsClient.get().uri(modelsPath()).retrieve().body(ModelsResponse.class);
+            ModelsResponse response =
+                    modelsClient.get().uri("/api/v0/models").retrieve().body(ModelsResponse.class);
             if (response == null || response.data() == null) {
                 return List.of();
             }
             return response.data().stream()
+                    .filter(this::isLoadedChatModel)
                     .map(ModelId::id)
-                    .filter(id -> id != null && !id.isBlank() && !id.toLowerCase(Locale.ROOT).contains("embed"))
+                    .filter(id -> id != null && !id.isBlank())
                     .toList();
         } catch (RestClientException e) {
             return List.of();
         }
     }
 
+    private boolean isLoadedChatModel(ModelId model) {
+        if (model == null || model.id() == null || model.id().isBlank()) {
+            return false;
+        }
+        String id = model.id().toLowerCase(Locale.ROOT);
+        String type = model.type() == null ? "" : model.type().toLowerCase(Locale.ROOT);
+        if (id.contains("embed") || type.contains("embed")) {
+            return false;
+        }
+        String state = model.state() == null ? "" : model.state().toLowerCase(Locale.ROOT);
+        return state.equals("loaded");
+    }
+
+    private List<String> loadedChatIdsFromCli() {
+        Path cli = resolveCli();
+        if (cli == null) {
+            return List.of();
+        }
+        CommandRunner.Result listed = commands.run(List.of(cli.toString(), "ps", "--json"), Duration.ofSeconds(15));
+        if (listed.exitCode() != 0) {
+            return List.of();
+        }
+        return parseModelKeys(listed.output()).stream()
+                .filter(id -> id != null && !id.isBlank() && !id.toLowerCase(Locale.ROOT).contains("embed"))
+                .toList();
+    }
+
     private boolean serverReachable() {
         try {
-            modelsClient.get().uri(modelsPath()).retrieve().toBodilessEntity();
+            modelsClient.get().uri("/api/v0/models").retrieve().toBodilessEntity();
             return true;
         } catch (RestClientException e) {
-            return false;
+            try {
+                modelsClient.get().uri(modelsPath()).retrieve().toBodilessEntity();
+                return true;
+            } catch (RestClientException ignored) {
+                return false;
+            }
         }
     }
 
@@ -267,7 +350,7 @@ public class LlmLifecycle implements LlmRuntime {
     private boolean waitForChatModel() {
         long deadline = System.currentTimeMillis() + Duration.ofSeconds(properties.getLlm().getLoadTimeoutSeconds()).toMillis();
         while (System.currentTimeMillis() < deadline) {
-            if (!chatIds().isEmpty()) {
+            if (!loadedChatIds().isEmpty()) {
                 return true;
             }
             sleep(500);
@@ -321,5 +404,5 @@ public class LlmLifecycle implements LlmRuntime {
     private record ModelsResponse(List<ModelId> data) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    private record ModelId(String id) {}
+    private record ModelId(String id, String state, String type) {}
 }

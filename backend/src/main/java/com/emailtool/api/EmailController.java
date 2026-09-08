@@ -69,6 +69,18 @@ public class EmailController {
         return digestService.detail(id);
     }
 
+    @PostMapping("/{id}/hide")
+    public Map<String, Boolean> hide(@PathVariable long id) {
+        digestService.setUserHidden(id, true);
+        return Map.of("hidden", true);
+    }
+
+    @PostMapping("/{id}/unhide")
+    public Map<String, Boolean> unhide(@PathVariable long id) {
+        digestService.setUserHidden(id, false);
+        return Map.of("hidden", false);
+    }
+
     @PostMapping("/{id}/load-images")
     public Map<String, Integer> loadImages(@PathVariable long id) {
         int loaded = remoteImageService.loadImages(id);

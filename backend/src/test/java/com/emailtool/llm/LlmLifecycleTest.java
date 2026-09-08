@@ -35,10 +35,18 @@ class LlmLifecycleTest {
         server.setDispatcher(new Dispatcher() {
             @Override
             public MockResponse dispatch(RecordedRequest request) {
-                String body = chatLoaded.get()
-                        ? "{\"data\":[{\"id\":\"gemma-4-26b-a4b-it\"}]}"
-                        : "{\"data\":[{\"id\":\"text-embedding-nomic-embed-text-v1.5\"}]}";
-                return new MockResponse().setBody(body).addHeader("Content-Type", "application/json");
+                String path = request.getPath() == null ? "" : request.getPath();
+                if (path.contains("/api/v0/models")) {
+                    String body = chatLoaded.get()
+                            ? "{\"data\":[{\"id\":\"gemma-4-26b-a4b-it\",\"state\":\"loaded\",\"type\":\"llm\"},"
+                                    + "{\"id\":\"text-embedding-nomic-embed-text-v1.5\",\"state\":\"not-loaded\",\"type\":\"embeddings\"}]}"
+                            : "{\"data\":[{\"id\":\"gemma-4-26b-a4b-it\",\"state\":\"not-loaded\",\"type\":\"llm\"},"
+                                    + "{\"id\":\"text-embedding-nomic-embed-text-v1.5\",\"state\":\"not-loaded\",\"type\":\"embeddings\"}]}";
+                    return new MockResponse().setBody(body).addHeader("Content-Type", "application/json");
+                }
+                // OpenAI /v1/models lists installed models even when none are loaded.
+                String installed = "{\"data\":[{\"id\":\"gemma-4-26b-a4b-it\"},{\"id\":\"text-embedding-nomic-embed-text-v1.5\"}]}";
+                return new MockResponse().setBody(installed).addHeader("Content-Type", "application/json");
             }
         });
         server.start();
@@ -63,6 +71,27 @@ class LlmLifecycleTest {
     }
 
     @Test
+    void doesNotTreatInstalledButUnloadedModelsAsReady() {
+        chatLoaded.set(false);
+        RecordingRunner runner = new RecordingRunner(command -> {
+            if (command.get(0).equals("nvidia-smi") && command.get(1).contains("memory.used")) {
+                return new CommandRunner.Result(0, "20000, 24576, 4000");
+            }
+            if (command.get(0).equals("nvidia-smi")) {
+                return new CommandRunner.Result(0, "99, chrome.exe, 18000 MiB");
+            }
+            if (command.contains("ps")) {
+                return new CommandRunner.Result(0, "[]");
+            }
+            return new CommandRunner.Result(0, "");
+        });
+        LlmLifecycle lifecycle = lifecycle(runner);
+        assertFalse(lifecycle.ensureReady());
+        assertTrue(lifecycle.lastError().contains("chrome.exe"));
+        assertFalse(runner.seen.stream().anyMatch(command -> command.contains("load")));
+    }
+
+    @Test
     void doesNotLoadWhenGpuIsBusy() throws Exception {
         RecordingRunner runner = new RecordingRunner(command -> {
             if (command.get(0).equals("nvidia-smi") && command.get(1).contains("memory.used")) {
@@ -70,6 +99,9 @@ class LlmLifecycleTest {
             }
             if (command.get(0).equals("nvidia-smi")) {
                 return new CommandRunner.Result(0, "99, chrome.exe, 18000 MiB");
+            }
+            if (command.contains("ps")) {
+                return new CommandRunner.Result(0, "[]");
             }
             return new CommandRunner.Result(0, "");
         });
@@ -91,6 +123,9 @@ class LlmLifecycleTest {
             }
             if (command.get(0).equals("nvidia-smi")) {
                 return new CommandRunner.Result(0, "");
+            }
+            if (command.contains("ps")) {
+                return new CommandRunner.Result(0, chatLoaded.get() ? "[{\"modelKey\":\"gemma-4-26b-a4b-it\"}]" : "[]");
             }
             return new CommandRunner.Result(0, "unloaded");
         });

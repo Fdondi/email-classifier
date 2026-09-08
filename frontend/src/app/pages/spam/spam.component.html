@@ -10,5 +10,6 @@
     [emails]="emails"
     emptyText="No spam classified"
     (categoryChanged)="reload()"
+    (visibilityChanged)="reload()"
     (failed)="error = $event" />
 </section>

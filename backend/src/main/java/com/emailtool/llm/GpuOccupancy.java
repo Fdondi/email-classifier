@@ -7,20 +7,30 @@ import java.util.Optional;
 
 public final class GpuOccupancy {
 
+    /** After unload, LM Studio's server may still use a little VRAM. Above this is not idle. */
+    public static final int IDLE_USED_MIB = 2048;
+
     private final boolean probeWorked;
     private final int freeMib;
     private final int usedMib;
     private final List<String> foreignProcesses;
+    private final List<String> ownProcesses;
 
-    GpuOccupancy(boolean probeWorked, int freeMib, int usedMib, List<String> foreignProcesses) {
+    GpuOccupancy(
+            boolean probeWorked,
+            int freeMib,
+            int usedMib,
+            List<String> foreignProcesses,
+            List<String> ownProcesses) {
         this.probeWorked = probeWorked;
         this.freeMib = freeMib;
         this.usedMib = usedMib;
         this.foreignProcesses = List.copyOf(foreignProcesses);
+        this.ownProcesses = List.copyOf(ownProcesses);
     }
 
     public static GpuOccupancy unavailable(String detail) {
-        return new GpuOccupancy(false, 0, 0, List.of(detail));
+        return new GpuOccupancy(false, 0, 0, List.of(detail), List.of());
     }
 
     public static Optional<GpuOccupancy> parse(String gpuCsv, String computeCsv) {
@@ -51,7 +61,8 @@ public final class GpuOccupancy {
         if (bestFree < 0) {
             return Optional.empty();
         }
-        return Optional.of(new GpuOccupancy(true, bestFree, usedForBest, foreignCompute(computeCsv)));
+        ComputeApps apps = parseCompute(computeCsv);
+        return Optional.of(new GpuOccupancy(true, bestFree, usedForBest, apps.foreign(), apps.own()));
     }
 
     public boolean probeWorked() {
@@ -62,12 +73,39 @@ public final class GpuOccupancy {
         return freeMib;
     }
 
+    public int usedMib() {
+        return usedMib;
+    }
+
     public boolean tooLittleFree(int minFreeMib) {
         return probeWorked && freeMib < minFreeMib;
     }
 
     public boolean hasForeignCompute() {
         return probeWorked && !foreignProcesses.isEmpty();
+    }
+
+    public boolean hasChatModelCompute() {
+        return probeWorked && !ownProcesses.isEmpty();
+    }
+
+    public boolean stillHeldAfterUnload() {
+        return stillHeldAfterUnload(IDLE_USED_MIB);
+    }
+
+    public boolean stillHeldAfterUnload(int idleUsedMib) {
+        return probeWorked && (hasChatModelCompute() || usedMib > idleUsedMib);
+    }
+
+    public String heldAfterUnloadReason() {
+        if (hasChatModelCompute()) {
+            return "chat model still listed on GPU: " + String.join(", ", ownProcesses)
+                    + " (" + usedMib + " MiB used)";
+        }
+        if (probeWorked && usedMib > IDLE_USED_MIB) {
+            return "GPU still has " + usedMib + " MiB used (" + freeMib + " MiB free) after unload";
+        }
+        return null;
     }
 
     public String busyReason(int minFreeMib) {
@@ -89,10 +127,11 @@ public final class GpuOccupancy {
                 || lower.contains("llama");
     }
 
-    private static List<String> foreignCompute(String computeCsv) {
+    private static ComputeApps parseCompute(String computeCsv) {
         List<String> foreign = new ArrayList<>();
+        List<String> own = new ArrayList<>();
         if (computeCsv == null || computeCsv.isBlank()) {
-            return foreign;
+            return new ComputeApps(foreign, own);
         }
         for (String line : computeCsv.split("\\R")) {
             String trimmed = line.trim();
@@ -101,13 +140,19 @@ public final class GpuOccupancy {
             }
             String[] parts = trimmed.split(",", 3);
             String name = parts.length >= 2 ? parts[1].trim() : trimmed;
-            if (name.isEmpty() || isOwnProcess(name)) {
+            if (name.isEmpty()) {
                 continue;
             }
-            foreign.add(name);
+            if (isOwnProcess(name)) {
+                own.add(name);
+            } else {
+                foreign.add(name);
+            }
         }
-        return foreign;
+        return new ComputeApps(foreign, own);
     }
+
+    private record ComputeApps(List<String> foreign, List<String> own) {}
 
     private static Integer parseMib(String raw) {
         String digits = raw.trim().replace("MiB", "").replace("mib", "").trim();

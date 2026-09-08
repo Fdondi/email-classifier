@@ -82,13 +82,18 @@ function Get-GemmaKey {
 }
 
 function Test-ChatModelLoaded {
-    $models = Get-Json -Url "$LlmUrl/models"
+    # /v1/models lists installed models even when none are in memory.
+    $origin = $LlmUrl -replace '/v1/?$', ''
+    $models = Get-Json -Url "$origin/api/v0/models"
     $ids = @()
     if ($models.data) {
-        $ids = @($models.data | ForEach-Object { $_.id })
+        $ids = @(
+            $models.data |
+                Where-Object { $_.state -eq 'loaded' -and $_.type -ne 'embeddings' -and $_.id -notmatch 'embed' } |
+                ForEach-Object { $_.id }
+        )
     }
-    $chat = $ids | Where-Object { $_ -and ($_ -notmatch "embed") }
-    return $chat
+    return $ids
 }
 
 function Test-UserIdleEnoughToPowerOff {
@@ -203,7 +208,16 @@ try {
     Write-Log "Backend status mailSource=$($status.mailSource) llmReachable=$($status.llmReachable)"
 
     Write-Log "POST $BackendUrl/api/jobs/triage?source=nightly"
-    $job = Invoke-RestMethod -Method Post -Uri "$BackendUrl/api/jobs/triage?source=nightly" -TimeoutSec 21600
+    Invoke-RestMethod -Method Post -Uri "$BackendUrl/api/jobs/triage?source=nightly" -TimeoutSec 60 | Out-Null
+    $deadline = (Get-Date).AddHours(6)
+    do {
+        Start-Sleep -Seconds 2
+        $job = Invoke-RestMethod -Method Get -Uri "$BackendUrl/api/jobs/triage" -TimeoutSec 30
+        Write-Log "Triage $($job.phase): downloaded $($job.ingested) skipped $($job.skipped); classified rules=$($job.classifiedByRule) llm=$($job.classifiedByLlm) fallback=$($job.fallback)"
+        if ((Get-Date) -gt $deadline) {
+            throw "Triage still running after 6 hours (phase=$($job.phase))"
+        }
+    } while ($job.running)
     $jobJson = $job | ConvertTo-Json -Compress
     Write-Log "Triage result: $jobJson"
     $errList = @()

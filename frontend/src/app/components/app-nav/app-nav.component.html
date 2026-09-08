@@ -2,4 +2,6 @@
   <a routerLink="/" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }">Digest</a>
   <a routerLink="/runs" routerLinkActive="active">Runs</a>
   <a routerLink="/spam" routerLinkActive="active">Spam @if (spamCount !== null) { ({{ spamCount }}) }</a>
+  <a routerLink="/hidden" routerLinkActive="active">Hidden @if (hiddenCount !== null) { ({{ hiddenCount }}) }</a>
+  <span class="build-versions" title="VERSION.md at build time">ui {{ frontendVersion }} · api {{ backendVersion ?? '…' }}</span>
 </nav>

@@ -8,7 +8,7 @@ import {
   EmailDetail,
   EmailSummary,
   SystemStatus,
-  TriageJobResult,
+  TriageProgress,
   TriageRun
 } from '../models/email.model';
 
@@ -16,22 +16,26 @@ import {
 export class ApiService {
   constructor(private readonly http: HttpClient) {}
 
-  digest(): Observable<Digest> {
-    return this.http.get<Digest>('/api/digest');
+  digest(includeRead = false): Observable<Digest> {
+    return this.http.get<Digest>('/api/digest', {
+      params: { includeRead: String(includeRead) }
+    });
   }
 
   status(): Observable<SystemStatus> {
     return this.http.get<SystemStatus>('/api/status');
   }
 
-  categoryPage(category: Category, offset: number, limit = 5): Observable<CategoryPage> {
+  categoryPage(category: Category, offset: number, limit = 5, includeRead = false): Observable<CategoryPage> {
     return this.http.get<CategoryPage>(`/api/digest/category/${category}`, {
-      params: { offset, limit }
+      params: { offset, limit, includeRead: String(includeRead) }
     });
   }
 
-  spam(): Observable<EmailSummary[]> {
-    return this.http.get<EmailSummary[]>('/api/digest/spam');
+  spam(includeRead = false): Observable<EmailSummary[]> {
+    return this.http.get<EmailSummary[]>('/api/digest/spam', {
+      params: { includeRead: String(includeRead) }
+    });
   }
 
   email(id: number): Observable<EmailDetail> {
@@ -46,8 +50,26 @@ export class ApiService {
     return this.http.post<EmailDetail>(`/api/emails/${id}/corrections`, { category });
   }
 
-  runTriage(): Observable<TriageJobResult> {
-    return this.http.post<TriageJobResult>('/api/jobs/triage', {});
+  hideEmail(id: number): Observable<{ hidden: boolean }> {
+    return this.http.post<{ hidden: boolean }>(`/api/emails/${id}/hide`, {});
+  }
+
+  unhideEmail(id: number): Observable<{ hidden: boolean }> {
+    return this.http.post<{ hidden: boolean }>(`/api/emails/${id}/unhide`, {});
+  }
+
+  hidden(offset = 0, limit = 50): Observable<EmailSummary[]> {
+    return this.http.get<EmailSummary[]>('/api/digest/hidden', {
+      params: { offset, limit }
+    });
+  }
+
+  runTriage(): Observable<TriageProgress> {
+    return this.http.post<TriageProgress>('/api/jobs/triage', {});
+  }
+
+  triageProgress(): Observable<TriageProgress> {
+    return this.http.get<TriageProgress>('/api/jobs/triage');
   }
 
   runs(): Observable<TriageRun[]> {
