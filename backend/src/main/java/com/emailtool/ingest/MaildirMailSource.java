@@ -22,36 +22,46 @@ public class MaildirMailSource implements MailSource {
     }
 
     @Override
-    public List<RawMessage> poll() {
+    public PollResult poll(MailPollOptions options) {
         Path root = Path.of(properties.getMail().getMaildir()).toAbsolutePath().normalize();
         if (!Files.isDirectory(root)) {
             log.warn("Mail directory does not exist: {}", root);
-            return List.of();
+            return PollResult.empty();
         }
         List<Path> files = new ArrayList<>();
         Path newDir = root.resolve("new");
         Path curDir = root.resolve("cur");
         if (Files.isDirectory(newDir) || Files.isDirectory(curDir)) {
             collectFiles(newDir, files);
-            collectFiles(curDir, files);
+            if (options.includeRead()) {
+                collectFiles(curDir, files);
+            }
         } else {
             collectFiles(root, files);
         }
         List<RawMessage> messages = new ArrayList<>();
+        List<MailboxVisibility> visibility = new ArrayList<>();
         for (Path file : files) {
             try {
+                String key = file.toAbsolutePath().normalize().toString();
                 messages.add(new RawMessage(
-                        file.toAbsolutePath().normalize().toString(),
-                        Files.getLastModifiedTime(file).toMillis(),
-                        Files.readAllBytes(file)));
+                        key, Files.getLastModifiedTime(file).toMillis(), Files.readAllBytes(file)));
+                visibility.add(new MailboxVisibility(key, true));
             } catch (IOException e) {
                 log.warn("Skipping unreadable mail file {}: {}", file, e.getMessage());
             }
         }
-        return messages;
+        if (Files.isDirectory(curDir) && !options.includeRead()) {
+            List<Path> readFiles = new ArrayList<>();
+            collectFiles(curDir, readFiles);
+            for (Path file : readFiles) {
+                visibility.add(new MailboxVisibility(file.toAbsolutePath().normalize().toString(), false));
+            }
+        }
+        return new PollResult(messages, visibility);
     }
 
-    private void collectFiles(Path dir, List<Path> files) {
+    private static void collectFiles(Path dir, List<Path> files) {
         if (!Files.isDirectory(dir)) {
             return;
         }

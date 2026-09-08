@@ -113,7 +113,8 @@ public class DigestService {
                 email.isImagesLoaded(),
                 remoteCount,
                 email.getClassificationSource() == null ? null : email.getClassificationSource().name(),
-                email.getLanguage());
+                email.getLanguage(),
+                email.getMessageId());
     }
 
     private DualAxisSectionDto dual(Category category) {

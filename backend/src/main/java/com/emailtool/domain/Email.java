@@ -124,6 +124,10 @@ public class Email {
     @Column(name = "images_loaded", nullable = false)
     private boolean imagesLoaded;
 
+    @JdbcTypeCode(SqlTypes.INTEGER)
+    @Column(name = "digest_visible", nullable = false)
+    private boolean digestVisible = true;
+
     public Long getId() {
         return id;
     }
@@ -402,5 +406,13 @@ public class Email {
 
     public void setImagesLoaded(boolean imagesLoaded) {
         this.imagesLoaded = imagesLoaded;
+    }
+
+    public boolean isDigestVisible() {
+        return digestVisible;
+    }
+
+    public void setDigestVisible(boolean digestVisible) {
+        this.digestVisible = digestVisible;
     }
 }

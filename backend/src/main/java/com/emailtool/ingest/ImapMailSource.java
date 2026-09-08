@@ -2,6 +2,7 @@ package com.emailtool.ingest;
 
 import com.emailtool.config.AppProperties;
 import jakarta.mail.FetchProfile;
+import jakarta.mail.Flags;
 import jakarta.mail.Folder;
 import jakarta.mail.Message;
 import jakarta.mail.MessagingException;
@@ -17,8 +18,10 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Properties;
+import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -33,7 +36,7 @@ public class ImapMailSource implements MailSource {
     }
 
     @Override
-    public List<RawMessage> poll() {
+    public PollResult poll(MailPollOptions options) {
         AppProperties.Imap imap = properties.getMail().getImap();
         if (imap.getUsername() == null
                 || imap.getUsername().isBlank()
@@ -43,6 +46,7 @@ public class ImapMailSource implements MailSource {
             throw new IllegalStateException(
                     "IMAP is selected but username/password are missing. Copy config/secrets.example.yml to config/secrets.yml and put your mail host, address, and app password there. Thunderbird is not required and does not expose a local API.");
         }
+        ImapFolderPolicy.rejectArchiveFolder(imap.getFolder());
         String protocol = imap.isSsl() ? "imaps" : "imap";
         Properties props = new Properties();
         props.put("mail.store.protocol", protocol);
@@ -65,15 +69,30 @@ public class ImapMailSource implements MailSource {
             }
             folder.open(Folder.READ_ONLY);
             Message[] found = search(folder, imap);
+            FetchProfile flagProfile = new FetchProfile();
+            flagProfile.add(FetchProfile.Item.FLAGS);
+            flagProfile.add(FetchProfile.Item.ENVELOPE);
+            if (found.length > 0) {
+                folder.fetch(found, flagProfile);
+            }
             Instant now = Instant.now();
             Duration recent = Duration.ofHours(Math.max(1, imap.getRecentHours()));
             Duration fill = fillWindow(imap);
+            UIDFolder uidFolder = folder instanceof UIDFolder uids ? uids : null;
             List<DatedMessage> dated = new ArrayList<>();
+            List<MailboxVisibility> visibility = new ArrayList<>();
             for (Message message : found) {
-                dated.add(new DatedMessage(message, sortDate(message).toInstant()));
+                boolean seen = message.isSet(Flags.Flag.SEEN);
+                boolean visible = ImapFolderPolicy.digestVisible(seen, options.includeRead());
+                String key = sourceKey(imap, uidFolder, message);
+                visibility.add(new MailboxVisibility(key, visible));
+                dated.add(new DatedMessage(message, sortDate(message).toInstant(), seen, key));
             }
+            List<DatedMessage> candidates = dated.stream()
+                    .filter(row -> options.includeRead() || !row.seen())
+                    .toList();
             List<DatedMessage> picked = ImapWindow.select(
-                    dated, DatedMessage::when, now, recent, fill, Math.max(0, imap.getMaxMessages()));
+                    candidates, DatedMessage::when, now, recent, fill, Math.max(0, imap.getMaxMessages()));
             int recentCount = 0;
             Instant recentSince = now.minus(recent);
             for (DatedMessage row : picked) {
@@ -89,32 +108,24 @@ public class ImapMailSource implements MailSource {
             if (toFetch.length > 0) {
                 folder.fetch(toFetch, profile);
             }
-            UIDFolder uidFolder = folder instanceof UIDFolder uids ? uids : null;
             for (DatedMessage row : picked) {
                 Message message = row.message();
-                long uid = uidFolder == null ? message.getMessageNumber() : uidFolder.getUID(message);
-                String key = "imap://"
-                        + imap.getUsername()
-                        + "@"
-                        + imap.getHost()
-                        + "/"
-                        + imap.getFolder()
-                        + ";UID="
-                        + uid;
                 ByteArrayOutputStream buffer = new ByteArrayOutputStream();
                 message.writeTo(buffer);
-                result.add(new RawMessage(key, row.when().toEpochMilli(), buffer.toByteArray()));
+                result.add(new RawMessage(row.sourceKey(), row.when().toEpochMilli(), buffer.toByteArray()));
             }
             log.info(
-                    "IMAP fetched {} messages ({} from last {}h, {} older within {}d) from {}/{}",
+                    "IMAP fetched {} messages ({} from last {}h, {} older within {}d, includeRead={}, scanned={}) from {}/{}",
                     result.size(),
                     recentCount,
                     recent.toHours(),
                     result.size() - recentCount,
                     fill.toDays(),
+                    options.includeRead(),
+                    dated.size(),
                     imap.getHost(),
                     imap.getFolder());
-            return result;
+            return new PollResult(result, visibility);
         } catch (MessagingException | IOException e) {
             throw new IllegalStateException("IMAP download failed: " + e.getMessage(), e);
         } finally {
@@ -124,8 +135,25 @@ public class ImapMailSource implements MailSource {
 
     private Message[] search(Folder folder, AppProperties.Imap imap) throws MessagingException {
         Date since = Date.from(Instant.now().minus(fillWindow(imap)));
-        SearchTerm term = new ReceivedDateTerm(ComparisonTerm.GE, since);
-        return folder.search(term);
+        SearchTerm byDate = new ReceivedDateTerm(ComparisonTerm.GE, since);
+        // Always search the full date window (including read) so we can hide read/archived
+        // mail already in the local digest. Unread-only selection happens after FLAGS fetch.
+        return folder.search(byDate);
+    }
+
+    /**
+     * Marks source keys that fell out of the live folder within the fill window as not
+     * digest-visible. Implemented in {@link IngestService} using date + prefix matching;
+     * this helper only builds the IMAP source-key prefix for the open folder.
+     */
+    static String folderKeyPrefix(AppProperties.Imap imap) {
+        return "imap://" + imap.getUsername() + "@" + imap.getHost() + "/" + imap.getFolder() + ";UID=";
+    }
+
+    private static String sourceKey(AppProperties.Imap imap, UIDFolder uidFolder, Message message)
+            throws MessagingException {
+        long uid = uidFolder == null ? message.getMessageNumber() : uidFolder.getUID(message);
+        return folderKeyPrefix(imap) + uid;
     }
 
     private static Duration fillWindow(AppProperties.Imap imap) {
@@ -147,7 +175,7 @@ public class ImapMailSource implements MailSource {
         return Date.from(Instant.EPOCH);
     }
 
-    private record DatedMessage(Message message, Instant when) {}
+    private record DatedMessage(Message message, Instant when, boolean seen, String sourceKey) {}
 
     private static void close(Folder folder, Store store) {
         if (folder != null && folder.isOpen()) {

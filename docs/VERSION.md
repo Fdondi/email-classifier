@@ -1,3 +1,4 @@
+0.4.0 - Open in Gmail from email detail via RFC822 Message-ID search link.
 0.3.3 - Add a Runs tab with persisted triage history (start, duration, counts, errors).
 0.3.2 - Nightly starts the backend; requeue list-unsubscribe rule guesses and FALLBACK for LLM; unsubscribe is a weak signal only.
 0.3.1 - Do not hold the SQLite connection across IMAP or GPU load; corrections can run during triage.

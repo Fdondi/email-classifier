@@ -7,6 +7,10 @@
     <h1>{{ email.subject }}</h1>
     <p class="muted">
       {{ email.fromDisplayName || email.fromAddress }} · {{ email.dateSent | date: 'medium' }}
+      @if (gmailUrl(email.messageId); as gmail) {
+        ·
+        <a class="link" [href]="gmail" target="_blank" rel="noopener noreferrer">Open in Gmail</a>
+      }
     </p>
     <label class="category-label">
       Category

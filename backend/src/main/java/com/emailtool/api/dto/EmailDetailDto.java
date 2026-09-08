@@ -20,4 +20,5 @@ public record EmailDetailDto(
         boolean imagesLoaded,
         int remoteImageCount,
         String classificationSource,
-        String language) {}
+        String language,
+        String messageId) {}

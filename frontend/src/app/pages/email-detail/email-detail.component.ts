@@ -46,6 +46,18 @@ export class EmailDetailComponent implements OnInit {
     return categoryLabel(category);
   }
 
+  /** Gmail web search by RFC822 Message-ID (works without Gmail API / thread ids). */
+  gmailUrl(messageId: string | null | undefined): string | null {
+    if (!messageId) {
+      return null;
+    }
+    const id = messageId.replace(/^<|>$/g, '').trim();
+    if (!id) {
+      return null;
+    }
+    return `https://mail.google.com/mail/u/0/#search/rfc822msgid:${encodeURIComponent(id)}`;
+  }
+
   reassign(event: Event): void {
     if (!this.email) {
       return;

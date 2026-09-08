@@ -60,6 +60,7 @@ export interface EmailDetail {
   remoteImageCount: number;
   classificationSource: string | null;
   language: string | null;
+  messageId: string | null;
 }
 
 export interface DualAxisSection {
