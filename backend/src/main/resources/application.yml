@@ -1,0 +1,54 @@
+spring:
+  application:
+    name: email-tool
+  config:
+    import: optional:file:../config/secrets.yml
+  datasource:
+    url: jdbc:sqlite:${app.data-dir:./data}/email-tool.db
+    driver-class-name: org.sqlite.JDBC
+    hikari:
+      maximum-pool-size: 4
+      connection-timeout: 10000
+      connection-init-sql: PRAGMA journal_mode=WAL;
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: none
+    properties:
+      hibernate:
+        dialect: org.hibernate.community.dialect.SQLiteDialect
+  flyway:
+    enabled: true
+
+app:
+  data-dir: ./data
+  config-dir: ../config
+  training-dir: ../results/training
+  mail:
+    source: maildir
+    maildir: ../testdata/eml
+    imap:
+      host: imap.gmail.com
+      port: 993
+      ssl: true
+      folder: INBOX
+      since-days: 14
+      recent-hours: 24
+      max-messages: 100
+  llm:
+    base-url: http://127.0.0.1:1234/v1
+    model: ""
+    model-key: gemma-4-26b-a4b-it
+    timeout-seconds: 300
+    load-timeout-seconds: 1200
+    min-free-vram-mib: 18000
+    auto-load: true
+    auto-unload: true
+  taxonomy-version: 1
+  prompt-version: "4"
+  body-truncate-chars: 8000
+  subject-max-chars: 150
+  summary-max-chars: 200
+  schedule-enabled: false
+  schedule-cron: "0 30 3 * * *"
+  cors-origins: http://localhost:4200

@@ -1,0 +1,41 @@
+<section class="page">
+  <a class="link" routerLink="/">Back to digest</a>
+  @if (error) {
+    <p class="error">{{ error }}</p>
+  }
+  @if (email) {
+    <h1>{{ email.subject }}</h1>
+    <p class="muted">
+      {{ email.fromDisplayName || email.fromAddress }} · {{ email.dateSent | date: 'medium' }}
+    </p>
+    <label class="category-label">
+      Category
+      <select
+        class="category-select"
+        [disabled]="savingCategory"
+        (change)="reassign($event)">
+        @if (!email.category) {
+          <option value="" disabled selected>Unclassified</option>
+        }
+        @for (category of categories; track category) {
+          <option [value]="category" [selected]="email.category === category">{{ categoryName(category) }}</option>
+        }
+      </select>
+    </label>
+    <p>{{ email.summary }}</p>
+    @if (email.injectionSuspected) {
+      <p class="error">Quarantined: injection suspected</p>
+    }
+    @if (email.needsManualReview) {
+      <p class="error">Needs manual review</p>
+    }
+    @if (email.remoteImageCount > 0 && !email.imagesLoaded) {
+      <button type="button" class="button" (click)="loadImages()" [disabled]="loadingImages">
+        Load {{ email.remoteImageCount }} remote images
+      </button>
+    }
+    @if (bodyUrl) {
+      <iframe class="body-frame" sandbox [src]="bodyUrl" title="Email body"></iframe>
+    }
+  }
+</section>

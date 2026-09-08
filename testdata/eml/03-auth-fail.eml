@@ -1,0 +1,10 @@
+From: Prize Bot <winner@spam.test>
+To: user@local.test
+Subject: FAKE TEST DATA you have won
+Date: Mon, 1 Sep 2025 12:00:00 +0000
+Message-ID: <spam-1@spam.test>
+Authentication-Results: mx.local; dkim=fail; spf=fail; dmarc=fail
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+
+FAKE TEST DATA. Synthetic spam with failing authentication results.

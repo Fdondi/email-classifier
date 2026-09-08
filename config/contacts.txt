@@ -1,0 +1,3 @@
+# Known personal addresses. Not used to assign a category; exempts these senders from
+# newsletter and auth-fail rules.
+friend@local.test

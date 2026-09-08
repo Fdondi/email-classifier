@@ -1,0 +1,14 @@
+<section class="page">
+  <header class="toolbar">
+    <h1>Spam (recoverable)</h1>
+    <app-nav [spamCount]="emails.length" />
+  </header>
+  @if (error) {
+    <p class="error">{{ error }}</p>
+  }
+  <app-email-list
+    [emails]="emails"
+    emptyText="No spam classified"
+    (categoryChanged)="reload()"
+    (failed)="error = $event" />
+</section>

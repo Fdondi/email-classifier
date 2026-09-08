@@ -1,0 +1,16 @@
+target/
+.idea/
+*.iml
+data/
+*.db
+*.db-journal
+node_modules/
+.angular/
+dist/
+temp/
+.DS_Store
+*.log
+config/secrets.yml
+results/nightly/
+results/training/
+frontend/.vscode/

@@ -1,0 +1,42 @@
+<section class="page">
+  <header class="toolbar">
+    <h1>Runs</h1>
+    <app-nav />
+  </header>
+
+  @if (error) {
+    <p class="error">{{ error }}</p>
+  }
+
+  @if (!error && runs.length === 0) {
+    <p class="muted">No triage runs recorded yet. After a run finishes, it shows up here.</p>
+  }
+
+  @for (run of runs; track run.id) {
+    <article class="block run">
+      <header class="run-head">
+        <span class="pill outcome-{{ run.outcome }}">{{ run.outcome }}</span>
+        <span>{{ run.startedAt | date: 'medium' }}</span>
+        <span class="muted">{{ duration(run.durationMs) }}</span>
+        <span class="muted">{{ run.source }}</span>
+      </header>
+      <p>
+        Ingested {{ run.ingested }}, skipped {{ run.skipped }}, ingest failed {{ run.ingestFailed }},
+        requeued {{ run.requeued }}
+      </p>
+      <p>
+        Classified {{ classified(run) }}
+        (rules {{ run.classifiedByRule }}, LLM {{ run.classifiedByLlm }}, fallback {{ run.fallback }}).
+        Unclassified left {{ run.unclassifiedLeft }}.
+        LLM {{ run.llmReady ? 'ready' : 'not ready' }}.
+      </p>
+      @if (run.errors.length) {
+        <ul class="error">
+          @for (item of run.errors; track item) {
+            <li>{{ item }}</li>
+          }
+        </ul>
+      }
+    </article>
+  }
+</section>

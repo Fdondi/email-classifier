@@ -1,0 +1,11 @@
+From: Friend <friend@local.test>
+To: user@local.test
+Subject: FAKE TEST DATA lunch
+Date: Mon, 1 Sep 2025 13:00:00 +0000
+Message-ID: <friend-1@local.test>
+List-Unsubscribe: <https://evil.test/unsub>
+Authentication-Results: mx.local; dkim=fail; spf=fail; dmarc=fail
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+
+FAKE TEST DATA. Contact exemption: this should not be newsletter or spam.

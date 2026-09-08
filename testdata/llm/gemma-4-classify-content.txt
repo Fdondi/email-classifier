@@ -1,0 +1,9 @@
+﻿{
+  "category": "ACTION_NEEDED_PAY",
+  "confidence": 1.0,
+  "summary": "Synthetic invoice for 12.00 USD due on September 15, 2025.",
+  "interest_score": 0,
+  "due_date": "2025-09-15",
+  "injection_suspected": false,
+  "language": "en"
+}

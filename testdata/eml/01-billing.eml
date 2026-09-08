@@ -1,0 +1,10 @@
+From: Billing Desk <billing@invoices.test>
+To: user@local.test
+Subject: FAKE TEST DATA Invoice 1001
+Date: Mon, 1 Sep 2025 10:00:00 +0000
+Message-ID: <billing-1@invoices.test>
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+
+FAKE TEST DATA. This is a synthetic invoice. Amount 12.00 USD. Due 2025-09-15.
+This file is not a real bill.

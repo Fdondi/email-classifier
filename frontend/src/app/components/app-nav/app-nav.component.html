@@ -1,0 +1,5 @@
+<nav class="tabs">
+  <a routerLink="/" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }">Digest</a>
+  <a routerLink="/runs" routerLinkActive="active">Runs</a>
+  <a routerLink="/spam" routerLinkActive="active">Spam @if (spamCount !== null) { ({{ spamCount }}) }</a>
+</nav>
