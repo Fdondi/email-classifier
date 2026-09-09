@@ -26,6 +26,8 @@ public interface EmailRepository extends JpaRepository<Email, Long> {
 
     List<Email> findByCategoryIn(Collection<Category> categories);
 
+    List<Email> findByActionNeededTrue();
+
     List<Email> findByCategory(Category category);
 
     Page<Email> findByCategoryOrderByBatchRankAscIdAsc(Category category, Pageable pageable);

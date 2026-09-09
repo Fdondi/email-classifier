@@ -18,6 +18,7 @@ export class EmailDetailComponent implements OnInit {
   showLocalPreview = false;
   loadingImages = false;
   savingCategory = false;
+  savingActionNeeded = false;
   savingVisibility = false;
   readonly categories = CATEGORIES;
 
@@ -76,6 +77,23 @@ export class EmailDetailComponent implements OnInit {
         this.savingCategory = false;
         select.value = this.email?.category ?? '';
         this.error = describeHttpError(err, 'Could not save correction');
+      }
+    });
+  }
+
+  toggleActionNeeded(): void {
+    if (!this.email) {
+      return;
+    }
+    this.savingActionNeeded = true;
+    this.api.correctActionNeeded(this.email.id, !this.email.actionNeeded).subscribe({
+      next: (email) => {
+        this.savingActionNeeded = false;
+        this.email = { ...email, imagesLoaded: this.email?.imagesLoaded ?? email.imagesLoaded };
+      },
+      error: (err: unknown) => {
+        this.savingActionNeeded = false;
+        this.error = describeHttpError(err, 'Could not save action needed');
       }
     });
   }

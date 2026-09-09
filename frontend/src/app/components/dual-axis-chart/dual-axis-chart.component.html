@@ -2,10 +2,12 @@
   @if (chart.points.length) {
     <div class="dual-axis-chart">
       <svg
+        #chartSvg
         class="dual-axis-svg"
+        [class.dual-axis-svg-dragging]="draggingId() != null"
         [attr.viewBox]="'0 0 ' + chart.width + ' ' + chart.height"
         role="img"
-        [attr.aria-label]="'Importance versus urgency for ' + chart.points.length + ' emails'">
+        [attr.aria-label]="'Importance versus urgency for ' + chart.points.length + ' emails. Drag a point to rate it.'">
         <rect
           class="chart-plot"
           [attr.x]="chart.plot.x"
@@ -71,16 +73,16 @@
           Importance →
         </text>
         @for (point of chart.points; track point.email.id) {
-          <a
-            class="chart-point-link"
-            [attr.href]="point.email.gmailUrl || '/email/' + point.email.id"
-            [attr.target]="point.email.gmailUrl ? '_blank' : null"
-            [attr.rel]="point.email.gmailUrl ? 'noopener noreferrer' : null"
-            (click)="openPoint(point.email, $event)">
-            <circle class="chart-point" [attr.cx]="point.x" [attr.cy]="point.y" r="5.5">
-              <title>{{ point.email.subject || 'Email' }}</title>
-            </circle>
-          </a>
+          <circle
+            class="chart-point"
+            [class.chart-point-dragging]="draggingId() === point.email.id"
+            [class.chart-point-saving]="savingId === point.email.id"
+            [attr.cx]="point.x"
+            [attr.cy]="point.y"
+            r="6.5"
+            (pointerdown)="onPointerDown($event, point)">
+            <title>{{ point.email.subject || 'Email' }} — drag to rate</title>
+          </circle>
         }
       </svg>
       <ul class="chart-legend">
@@ -97,6 +99,7 @@
           Both
         </li>
       </ul>
+      <p class="chart-hint">Drag a point to change its rating. That reorders the lists and is stored for training.</p>
     </div>
   }
 }

@@ -81,6 +81,11 @@ public class Email {
     @Enumerated(EnumType.STRING)
     private Category category;
 
+    /** Independent of category: a pay, event, interview, etc. can need action or not. */
+    @JdbcTypeCode(SqlTypes.INTEGER)
+    @Column(name = "action_needed", nullable = false)
+    private boolean actionNeeded;
+
     private Double confidence;
 
     private String summary;
@@ -140,6 +145,18 @@ public class Email {
     @JdbcTypeCode(SqlTypes.INTEGER)
     @Column(name = "user_hidden", nullable = false)
     private boolean userHidden = false;
+
+    /** User-set urgency 0-1 from the dual-axis chart. Null means infer from due date. */
+    @Column(name = "rating_urgency")
+    private Double ratingUrgency;
+
+    /** User-set importance 0-1 from the dual-axis chart. Null means use blended score. */
+    @Column(name = "rating_importance")
+    private Double ratingImportance;
+
+    /** User list order; lower is earlier. Null means use the section's default sort. */
+    @Column(name = "list_rank")
+    private Integer listRank;
 
     public Long getId() {
         return id;
@@ -309,6 +326,14 @@ public class Email {
         this.category = category;
     }
 
+    public boolean isActionNeeded() {
+        return actionNeeded;
+    }
+
+    public void setActionNeeded(boolean actionNeeded) {
+        this.actionNeeded = actionNeeded;
+    }
+
     public Double getConfidence() {
         return confidence;
     }
@@ -451,5 +476,29 @@ public class Email {
 
     public void setUserHidden(boolean userHidden) {
         this.userHidden = userHidden;
+    }
+
+    public Double getRatingUrgency() {
+        return ratingUrgency;
+    }
+
+    public void setRatingUrgency(Double ratingUrgency) {
+        this.ratingUrgency = ratingUrgency;
+    }
+
+    public Double getRatingImportance() {
+        return ratingImportance;
+    }
+
+    public void setRatingImportance(Double ratingImportance) {
+        this.ratingImportance = ratingImportance;
+    }
+
+    public Integer getListRank() {
+        return listRank;
+    }
+
+    public void setListRank(Integer listRank) {
+        this.listRank = listRank;
     }
 }

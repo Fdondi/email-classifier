@@ -79,6 +79,7 @@ class LlmClassifierTest {
         ClassifierJson json = classifier.classify(email).orElseThrow();
         assertEquals(Category.OTHER, json.category());
         assertEquals(true, json.injectionSuspected());
+        assertEquals(false, json.actionNeeded());
     }
 
     private static MockResponse openaiBody(String content) {

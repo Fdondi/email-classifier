@@ -50,6 +50,30 @@ export class ApiService {
     return this.http.post<EmailDetail>(`/api/emails/${id}/corrections`, { category });
   }
 
+  correctActionNeeded(id: number, actionNeeded: boolean): Observable<EmailDetail> {
+    return this.http.post<EmailDetail>(`/api/emails/${id}/corrections`, { actionNeeded });
+  }
+
+  rateEmail(
+    id: number,
+    body: {
+      urgency: number;
+      importance: number;
+      predictedUrgency: number;
+      predictedImportance: number;
+    }
+  ): Observable<EmailDetail> {
+    return this.http.post<EmailDetail>(`/api/emails/${id}/rating`, body);
+  }
+
+  correctDueDate(id: number, dueDate: string | null): Observable<EmailDetail> {
+    return this.http.post<EmailDetail>(`/api/emails/${id}/due-date`, { dueDate });
+  }
+
+  reorderEmails(ids: number[]): Observable<void> {
+    return this.http.post<void>('/api/digest/reorder', { ids });
+  }
+
   hideEmail(id: number): Observable<{ hidden: boolean }> {
     return this.http.post<{ hidden: boolean }>(`/api/emails/${id}/hide`, {});
   }

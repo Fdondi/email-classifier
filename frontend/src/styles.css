@@ -146,12 +146,35 @@ h3 {
   fill: var(--fg);
   stroke: var(--bg);
   stroke-width: 1.5;
+  cursor: grab;
+  touch-action: none;
+}
+
+.chart-point-dragging {
+  cursor: grabbing;
+  fill: #fff;
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+
+.chart-point-saving {
+  opacity: 0.6;
+}
+
+.dual-axis-svg-dragging {
+  cursor: grabbing;
 }
 
 .chart-point-link:hover .chart-point {
   fill: #fff;
   stroke: var(--accent);
   stroke-width: 2;
+}
+
+.chart-hint {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 0.82rem;
 }
 
 .chart-legend {
@@ -196,7 +219,7 @@ h3 {
 .email-item {
   display: grid;
   grid-template-columns: 1fr auto;
-  gap: 12px;
+  gap: 6px;
   align-items: center;
   border-bottom: 1px solid var(--border);
 }
@@ -205,10 +228,108 @@ h3 {
   min-width: 0;
 }
 
+.email-item-drop {
+  outline: 1px dashed var(--accent);
+  outline-offset: -1px;
+}
+
 .email-actions {
   display: flex;
-  gap: 8px;
+  gap: 0;
   align-items: center;
+  position: relative;
+}
+
+.email-icon-btn {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.email-icon-btn svg {
+  width: 16px;
+  height: 16px;
+  display: block;
+}
+
+.email-icon-btn:hover:not(:disabled) {
+  color: var(--fg);
+  background: color-mix(in srgb, var(--fg) 10%, transparent);
+}
+
+.email-icon-btn.is-on,
+.email-icon-btn.is-open,
+.email-icon-btn[aria-pressed='true'] {
+  color: var(--accent);
+}
+
+.email-icon-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.email-drag-handle {
+  cursor: grab;
+}
+
+.email-drag-handle:active {
+  cursor: grabbing;
+}
+
+.email-action-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% - 2px);
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 11rem;
+  padding: 6px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px #0008;
+}
+
+.email-action-menu button {
+  text-align: left;
+  background: transparent;
+  color: var(--fg);
+  border: none;
+  padding: 4px 8px;
+  cursor: pointer;
+  font: inherit;
+  border-radius: 4px;
+}
+
+.email-action-menu button:hover,
+.email-action-menu .is-current {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.deadline-label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 0.85rem;
+  padding: 2px 4px 6px;
+}
+
+.deadline-input {
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  padding: 4px 6px;
+  font: inherit;
 }
 
 .button-quiet {
@@ -228,6 +349,23 @@ h3 {
 .button-quiet:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+
+.button-quiet[aria-pressed='true'],
+.button-action-needed {
+  color: var(--fg);
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.action-needed-pill {
+  flex: 0 0 auto;
+  font-size: 0.75rem;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  padding: 0 6px;
+  line-height: 1.4;
 }
 
 .category-select {
@@ -293,19 +431,48 @@ h3 {
   color: var(--error);
 }
 
-.email-group-label {
-  margin: 0 0 8px;
+.email-expired-section {
+  margin: 0 0 16px;
+  padding: 6px 10px 4px;
+  border: 1px solid color-mix(in srgb, var(--error) 50%, var(--border));
+  background: color-mix(in srgb, var(--error) 10%, var(--card));
+}
+
+.email-expired-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  margin: 0;
+  padding: 6px 0;
+  border: 0;
+  background: transparent;
   color: var(--error);
+  font: inherit;
   font-size: 0.75rem;
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
+  cursor: pointer;
+  text-align: left;
 }
 
-.email-group-split {
-  border: 0;
-  border-top: 1px dashed var(--muted);
-  margin: 18px 0 16px;
+.email-expired-toggle::before {
+  content: '';
+  width: 0;
+  height: 0;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  border-left: 6px solid currentColor;
+  transform: rotate(0deg);
+}
+
+.email-expired-toggle[aria-expanded='true']::before {
+  transform: rotate(90deg);
+}
+
+.email-expired-section .email-list {
+  margin-top: 4px;
 }
 
 .pill {

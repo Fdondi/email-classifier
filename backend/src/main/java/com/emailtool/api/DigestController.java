@@ -3,10 +3,14 @@ package com.emailtool.api;
 import com.emailtool.api.dto.CategoryPageDto;
 import com.emailtool.api.dto.DigestDto;
 import com.emailtool.api.dto.EmailSummaryDto;
+import com.emailtool.api.dto.ListRankRequest;
 import com.emailtool.domain.Category;
+import jakarta.validation.Valid;
 import java.util.List;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -24,6 +28,11 @@ public class DigestController {
     @GetMapping("/digest")
     public DigestDto digest(@RequestParam(defaultValue = "false") boolean includeRead) {
         return digestService.digest(includeRead);
+    }
+
+    @PostMapping("/digest/reorder")
+    public void reorder(@Valid @RequestBody ListRankRequest request) {
+        digestService.setListRanks(request.ids());
     }
 
     @GetMapping("/digest/category/{category}")

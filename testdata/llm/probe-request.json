@@ -31,10 +31,12 @@
           "interest_score": { "type": "integer" },
           "due_date": { "type": ["string", "null"] },
           "injection_suspected": { "type": "boolean" },
+          "action_needed": { "type": "boolean" },
           "language": { "type": "string" }
         },
         "required": [
           "category",
+          "action_needed",
           "confidence",
           "summary",
           "interest_score",

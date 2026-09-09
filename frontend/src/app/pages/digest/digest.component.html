@@ -57,10 +57,23 @@
       </section>
     }
 
-    @if (digest.actionNeeded.length) {
+    @if (hasDual(digest.actionNeeded)) {
       <section class="block">
         <h2>Action needed</h2>
-        <app-email-list [emails]="digest.actionNeeded" (categoryChanged)="reload()" (visibilityChanged)="reload()" (failed)="error = $event" />
+        <app-dual-axis-chart
+          [section]="digest.actionNeeded"
+          (rated)="onRated('actionNeeded', $event)"
+          (failed)="error = $event" />
+        <div class="split">
+          <div>
+            <h3>By urgency</h3>
+            <app-email-list [emails]="digest.actionNeeded.byUrgency" reorderAxis="urgency" (categoryChanged)="reload()" (visibilityChanged)="reload()" (failed)="error = $event" />
+          </div>
+          <div>
+            <h3>By importance</h3>
+            <app-email-list [emails]="digest.actionNeeded.byImportance" reorderAxis="importance" (categoryChanged)="reload()" (visibilityChanged)="reload()" (failed)="error = $event" />
+          </div>
+        </div>
       </section>
     } @else {
       <p class="empty-category">Action needed: nothing.</p>
@@ -69,15 +82,18 @@
     @if (hasDual(digest.events)) {
       <section class="block">
         <h2>Events</h2>
-        <app-dual-axis-chart [section]="digest.events" />
+        <app-dual-axis-chart
+          [section]="digest.events"
+          (rated)="onRated('events', $event)"
+          (failed)="error = $event" />
         <div class="split">
           <div>
             <h3>By urgency</h3>
-            <app-email-list [emails]="digest.events.byUrgency" (categoryChanged)="reload()" (visibilityChanged)="reload()" (failed)="error = $event" />
+            <app-email-list [emails]="digest.events.byUrgency" reorderAxis="urgency" (categoryChanged)="reload()" (visibilityChanged)="reload()" (failed)="error = $event" />
           </div>
           <div>
             <h3>By importance</h3>
-            <app-email-list [emails]="digest.events.byImportance" (categoryChanged)="reload()" (visibilityChanged)="reload()" (failed)="error = $event" />
+            <app-email-list [emails]="digest.events.byImportance" reorderAxis="importance" (categoryChanged)="reload()" (visibilityChanged)="reload()" (failed)="error = $event" />
           </div>
         </div>
       </section>
@@ -88,15 +104,18 @@
     @if (hasDual(digest.jobOffers)) {
       <section class="block">
         <h2>Job offers</h2>
-        <app-dual-axis-chart [section]="digest.jobOffers" />
+        <app-dual-axis-chart
+          [section]="digest.jobOffers"
+          (rated)="onRated('jobOffers', $event)"
+          (failed)="error = $event" />
         <div class="split">
           <div>
             <h3>By urgency</h3>
-            <app-email-list [emails]="digest.jobOffers.byUrgency" (categoryChanged)="reload()" (visibilityChanged)="reload()" (failed)="error = $event" />
+            <app-email-list [emails]="digest.jobOffers.byUrgency" reorderAxis="urgency" (categoryChanged)="reload()" (visibilityChanged)="reload()" (failed)="error = $event" />
           </div>
           <div>
             <h3>By importance</h3>
-            <app-email-list [emails]="digest.jobOffers.byImportance" (categoryChanged)="reload()" (visibilityChanged)="reload()" (failed)="error = $event" />
+            <app-email-list [emails]="digest.jobOffers.byImportance" reorderAxis="importance" (categoryChanged)="reload()" (visibilityChanged)="reload()" (failed)="error = $event" />
           </div>
         </div>
       </section>

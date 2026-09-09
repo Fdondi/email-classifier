@@ -13,4 +13,5 @@ public record ClassifierJson(
         @JsonAlias({"interest_score"}) Integer interestScore,
         @JsonAlias({"due_date"}) LocalDate dueDate,
         @JsonAlias({"injection_suspected"}) Boolean injectionSuspected,
-        String language) {}
+        String language,
+        @JsonAlias({"action_needed"}) Boolean actionNeeded) {}

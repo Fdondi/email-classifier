@@ -13,7 +13,7 @@ public enum Category {
     OTHER,
     SPAM;
 
-    public static final int TAXONOMY_VERSION = 1;
+    public static final int TAXONOMY_VERSION = 2;
 
     public boolean isAction() {
         return switch (this) {

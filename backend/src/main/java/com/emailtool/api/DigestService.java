@@ -13,6 +13,7 @@ import com.emailtool.ingest.FixtureMail;
 import com.emailtool.job.TriageJobService;
 import com.emailtool.persist.EmailRemoteResourceRepository;
 import com.emailtool.persist.EmailRepository;
+import com.emailtool.rank.RatingScores;
 import java.time.LocalDate;
 import java.util.Comparator;
 import java.util.List;
@@ -26,17 +27,30 @@ public class DigestService {
 
     private static final int TOP_N = 5;
 
+    static final Comparator<Email> BY_LIST_RANK =
+            Comparator.comparing(Email::getListRank, Comparator.nullsLast(Comparator.naturalOrder()));
     static final Comparator<Email> BY_DUE_THEN_SENT = expiredFirst(
-            Comparator.comparing(Email::getDueDate, Comparator.nullsLast(Comparator.naturalOrder()))
+            BY_LIST_RANK
+                    .thenComparing(Email::getDueDate, Comparator.nullsLast(Comparator.naturalOrder()))
                     .thenComparing(Email::getDateSent, Comparator.nullsLast(Comparator.naturalOrder())));
     static final Comparator<Email> BY_IMPORTANCE = expiredFirst(
             Comparator.comparing(Email::getBlendedScore, Comparator.nullsLast(Comparator.reverseOrder()))
                     .thenComparing(Email::getBatchRank, Comparator.nullsLast(Comparator.naturalOrder())));
     static final Comparator<Email> BY_SUMMARIZED = expiredFirst(
-            Comparator.comparing(Email::getBatchRank, Comparator.nullsLast(Comparator.naturalOrder()))
+            BY_LIST_RANK
+                    .thenComparing(Email::getBatchRank, Comparator.nullsLast(Comparator.naturalOrder()))
                     .thenComparing(Email::getBlendedScore, Comparator.nullsLast(Comparator.reverseOrder())));
     static final Comparator<Email> BY_INGESTED = expiredFirst(
             Comparator.comparing(Email::getIngestedAt, Comparator.nullsLast(Comparator.reverseOrder())));
+    static final Comparator<Email> BY_DUAL_URGENCY = Comparator
+            .comparingDouble((Email email) -> RatingScores.urgency(email, LocalDate.now()))
+            .reversed()
+            .thenComparing(BY_DUE_THEN_SENT);
+    static final Comparator<Email> BY_DUAL_IMPORTANCE = Comparator
+            .comparingDouble(RatingScores::importance)
+            .reversed()
+            .thenComparing(Email::getBatchRank, Comparator.nullsLast(Comparator.naturalOrder()))
+            .thenComparing(Email::getId);
 
     private final EmailRepository emailRepository;
     private final EmailRemoteResourceRepository remoteResourceRepository;
@@ -62,20 +76,11 @@ public class DigestService {
                 .sorted(BY_INGESTED)
                 .map(email -> EmailMapper.toSummary(email, properties))
                 .toList();
-        List<Category> actionCats = List.of(
-                Category.ACTION_NEEDED_PAY,
-                Category.ACTION_NEEDED_SIGN,
-                Category.ACTION_NEEDED_OTHER,
-                Category.JOB_INTERVIEWS);
-        List<EmailSummaryDto> action = emailRepository.findByCategoryIn(actionCats).stream()
-                .filter(shown)
-                .filter(email -> !email.isInjectionSuspected())
-                .sorted(BY_DUE_THEN_SENT)
-                .map(email -> EmailMapper.toSummary(email, properties))
-                .toList();
         return new DigestDto(
                 quarantine,
-                action,
+                dualSection(visible(emailRepository.findByActionNeededTrue(), shown).stream()
+                        .filter(DigestService::inActionNeededDigest)
+                        .toList()),
                 dual(Category.EVENT, shown),
                 dual(Category.JOB_OFFERS, shown),
                 summarized(Category.PROMOTION, shown),
@@ -117,6 +122,17 @@ public class DigestService {
         emailRepository.save(email);
     }
 
+    public void setListRanks(List<Long> ids) {
+        int rank = 0;
+        for (Long id : ids) {
+            Email email = emailRepository
+                    .findById(id)
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Email not found"));
+            email.setListRank(rank++);
+            emailRepository.save(email);
+        }
+    }
+
     public CategoryPageDto page(Category category, int offset, int limit, boolean includeRead) {
         if (limit <= 0 || limit > 50) {
             limit = 5;
@@ -125,7 +141,9 @@ public class DigestService {
             offset = 0;
         }
         Predicate<Email> shown = shownFilter(includeRead);
-        List<Email> emails = visible(emailRepository.findByCategory(category), shown);
+        List<Email> emails = category == Category.OTHER
+                ? visible(otherDigestEmails(), shown)
+                : visible(emailRepository.findByCategory(category), shown);
         List<EmailSummaryDto> items = emails.stream()
                 .sorted(BY_SUMMARIZED)
                 .skip(offset)
@@ -148,6 +166,7 @@ public class DigestService {
                 EmailMapper.cap(email.getFromDisplayName(), properties.getSubjectMaxChars()),
                 email.getDateSent(),
                 email.getCategory(),
+                email.isActionNeeded(),
                 email.getSummary(),
                 email.getConfidence(),
                 email.getInterestScore(),
@@ -164,14 +183,17 @@ public class DigestService {
     }
 
     private DualAxisSectionDto dual(Category category, Predicate<Email> shown) {
-        List<Email> emails = visible(emailRepository.findByCategoryAndInjectionSuspectedFalse(category), shown);
+        return dualSection(visible(emailRepository.findByCategoryAndInjectionSuspectedFalse(category), shown));
+    }
+
+    private DualAxisSectionDto dualSection(List<Email> emails) {
         List<EmailSummaryDto> byUrgency = emails.stream()
-                .sorted(BY_DUE_THEN_SENT)
+                .sorted(BY_DUAL_URGENCY)
                 .limit(TOP_N)
                 .map(email -> EmailMapper.toSummary(email, properties))
                 .toList();
         List<EmailSummaryDto> byImportance = emails.stream()
-                .sorted(BY_IMPORTANCE)
+                .sorted(BY_DUAL_IMPORTANCE)
                 .limit(TOP_N)
                 .map(email -> EmailMapper.toSummary(email, properties))
                 .toList();
@@ -183,13 +205,33 @@ public class DigestService {
     }
 
     private SummarizedSectionDto summarized(Category category, Predicate<Email> shown) {
-        List<Email> emails = visible(emailRepository.findByCategoryAndInjectionSuspectedFalse(category), shown);
+        List<Email> emails = category == Category.OTHER
+                ? visible(otherDigestEmails(), shown)
+                : visible(emailRepository.findByCategoryAndInjectionSuspectedFalse(category), shown);
         List<EmailSummaryDto> top = emails.stream()
                 .sorted(BY_SUMMARIZED)
                 .limit(TOP_N)
                 .map(email -> EmailMapper.toSummary(email, properties))
                 .toList();
         return new SummarizedSectionDto(top, emails.size());
+    }
+
+    private List<Email> otherDigestEmails() {
+        return emailRepository.findAll().stream().filter(DigestService::inOtherDigest).toList();
+    }
+
+    static boolean inActionNeededDigest(Email email) {
+        return email.isActionNeeded()
+                && !email.isInjectionSuspected()
+                && email.getCategory() != Category.SPAM;
+    }
+
+    static boolean inOtherDigest(Email email) {
+        Category category = email.getCategory();
+        if (category == Category.OTHER) {
+            return !email.isInjectionSuspected();
+        }
+        return category != null && category.isAction() && !email.isActionNeeded() && !email.isInjectionSuspected();
     }
 
     private static Predicate<Email> shownFilter(boolean includeRead) {

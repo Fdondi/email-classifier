@@ -11,6 +11,7 @@ public record EmailDetailDto(
         String fromDisplayName,
         Instant dateSent,
         Category category,
+        boolean actionNeeded,
         String summary,
         Double confidence,
         Integer interestScore,

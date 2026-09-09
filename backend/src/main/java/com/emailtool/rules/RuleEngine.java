@@ -22,6 +22,7 @@ public class RuleEngine {
             if (decision.isPresent()) {
                 RuleDecision value = decision.get();
                 email.setCategory(value.category());
+                email.setActionNeeded(value.actionNeeded());
                 email.setConfidence(value.confidence());
                 email.setSummary(value.summary());
                 email.setInterestScore(50);

@@ -41,6 +41,7 @@ public class RequeueStaleClassifications {
             return 0;
         }
         email.setCategory(null);
+        email.setActionNeeded(false);
         email.setClassificationSource(null);
         email.setNeedsManualReview(false);
         email.setOllamaError(null);

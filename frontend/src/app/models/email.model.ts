@@ -32,12 +32,15 @@ export interface EmailSummary {
   fromDisplayName: string | null;
   dateSent: string | null;
   category: Category | null;
+  actionNeeded: boolean;
   summary: string | null;
   confidence: number | null;
   interestScore: number | null;
   dueDate: string | null;
   blendedScore: number | null;
   batchRank: number | null;
+  ratingUrgency: number | null;
+  ratingImportance: number | null;
   injectionSuspected: boolean;
   needsManualReview: boolean;
   classificationSource: string | null;
@@ -51,6 +54,7 @@ export interface EmailDetail {
   fromDisplayName: string | null;
   dateSent: string | null;
   category: Category | null;
+  actionNeeded: boolean;
   summary: string | null;
   confidence: number | null;
   interestScore: number | null;
@@ -80,7 +84,7 @@ export interface SummarizedSection {
 
 export interface Digest {
   quarantine: EmailSummary[];
-  actionNeeded: EmailSummary[];
+  actionNeeded: DualAxisSection;
   events: DualAxisSection;
   jobOffers: DualAxisSection;
   promotions: SummarizedSection;
@@ -170,6 +174,23 @@ export function isExpiredDueDate(dueDate: string | null, today: string = todayIs
   return dueDate != null && dueDate < today;
 }
 
+/** Split a list into past-due rows and everything else, preserving relative order. */
+export function partitionExpiredEmails<T extends { dueDate: string | null }>(
+  emails: T[],
+  today: string = todayIsoDate()
+): { expired: T[]; current: T[] } {
+  const expired: T[] = [];
+  const current: T[] = [];
+  for (const email of emails) {
+    if (isExpiredDueDate(email.dueDate, today)) {
+      expired.push(email);
+    } else {
+      current.push(email);
+    }
+  }
+  return { expired, current };
+}
+
 export function isFixtureSummary(email: EmailSummary): boolean {
   return (email.subject ?? '').startsWith('FAKE TEST DATA');
 }
@@ -182,7 +203,12 @@ export function withoutFixtureDigest(digest: Digest): Digest {
   return {
     ...digest,
     quarantine: withoutFixtures(digest.quarantine),
-    actionNeeded: withoutFixtures(digest.actionNeeded),
+    actionNeeded: {
+      byUrgency: withoutFixtures(digest.actionNeeded.byUrgency),
+      byImportance: withoutFixtures(digest.actionNeeded.byImportance),
+      allEmails: withoutFixtures(digest.actionNeeded.allEmails ?? []),
+      total: digest.actionNeeded.total
+    },
     events: {
       byUrgency: withoutFixtures(digest.events.byUrgency),
       byImportance: withoutFixtures(digest.events.byImportance),

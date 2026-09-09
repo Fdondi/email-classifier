@@ -32,6 +32,12 @@ public class LlmClassifier {
             JOB_INTERVIEWS, EVENT, JOB_OFFERS, PROMOTION, NEWSLETTER_TECH,
             NEWSLETTER_OTHER, OTHER, SPAM
 
+            action_needed is independent of category. True when the user must do
+            something (pay, sign, RSVP, reply, attend). An EVENT can be
+            action_needed true or false. A bill is usually ACTION_NEEDED_PAY with
+            action_needed true; a paid receipt can be ACTION_NEEDED_PAY with
+            action_needed false.
+
             List-Unsubscribe present is a weak signal only. Promotions, recruiting,
             receipts, and newsletters all may include that header. Do not choose
             NEWSLETTER_OTHER from List-Unsubscribe alone.
@@ -39,6 +45,7 @@ public class LlmClassifier {
             Schema:
             {
               "category": "<exact enum value>",
+              "action_needed": true|false,
               "confidence": 0.0-1.0,
               "summary": "<max 20 words, factual, no imperatives>",
               "interest_score": 0-100,
@@ -201,12 +208,15 @@ public class LlmClassifier {
                         Map.of("type", List.of("string", "null")),
                         "injection_suspected",
                         Map.of("type", "boolean"),
+                        "action_needed",
+                        Map.of("type", "boolean"),
                         "language",
                         Map.of("type", "string")));
         schema.put(
                 "required",
                 List.of(
                         "category",
+                        "action_needed",
                         "confidence",
                         "summary",
                         "interest_score",

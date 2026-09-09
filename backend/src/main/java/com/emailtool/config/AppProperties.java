@@ -8,7 +8,7 @@ public class AppProperties {
     private String dataDir = "./data";
     private String configDir = "../config";
     private String trainingDir = "../results/training";
-    private int taxonomyVersion = 1;
+    private int taxonomyVersion = 2;
     private String promptVersion = "1";
     private int bodyTruncateChars = 8000;
     private int subjectMaxChars = 150;

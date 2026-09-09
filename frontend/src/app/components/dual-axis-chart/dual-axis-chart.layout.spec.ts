@@ -2,8 +2,10 @@ import { DualAxisSection, EmailSummary } from '../../models/email.model';
 import {
   IMPORTANCE_RGB,
   URGENCY_RGB,
+  applyRatingToSection,
   buildDualAxisChart,
   importanceScore,
+  ratingFromSvg,
   rgbSum,
   urgencyScore
 } from './dual-axis-chart.layout';
@@ -12,21 +14,21 @@ describe('dual-axis-chart layout', () => {
   const today = '2026-09-08';
 
   it('ranks earlier due dates as more urgent', () => {
-    expect(urgencyScore(email({ id: 1, dueDate: '2026-09-01' }))).toBeGreaterThan(
-      urgencyScore(email({ id: 2, dueDate: '2026-09-20' }))
+    expect(urgencyScore(email({ id: 1, dueDate: '2026-09-09' }), today)).toBeGreaterThan(
+      urgencyScore(email({ id: 2, dueDate: '2026-09-15' }), today)
     );
   });
 
-  it('puts emails with no due date below dated mail', () => {
-    expect(urgencyScore(email({ id: 1, dueDate: '2026-12-01' }))).toBeGreaterThan(
-      urgencyScore(email({ id: 2, dateSent: '2020-01-01T00:00:00Z' }))
+  it('puts emails with no due date below dated mail still inside the horizon', () => {
+    expect(urgencyScore(email({ id: 1, dueDate: '2026-09-12' }), today)).toBeGreaterThan(
+      urgencyScore(email({ id: 2, dateSent: '2020-01-01T00:00:00Z' }), today)
     );
   });
 
-  it('treats expired mail as more important than a higher blended score', () => {
-    const expired = email({ id: 1, dueDate: '2026-09-01', blendedScore: 0.1 });
-    const upcoming = email({ id: 2, dueDate: '2026-09-20', blendedScore: 0.9 });
-    expect(importanceScore(expired, today)).toBeGreaterThan(importanceScore(upcoming, today));
+  it('lets a user importance rating beat a higher blended score', () => {
+    const rated = email({ id: 1, blendedScore: 0.1, ratingImportance: 0.95 });
+    const blended = email({ id: 2, blendedScore: 0.9 });
+    expect(importanceScore(rated)).toBeGreaterThan(importanceScore(blended));
   });
 
   it('sums urgency and importance RGB in the intersection', () => {
@@ -65,6 +67,23 @@ describe('dual-axis-chart layout', () => {
     const chart = buildDualAxisChart(section, today);
     expect(chart.points.map((point) => point.email.id).sort()).toEqual([1, 2, 3]);
   });
+
+  it('inverts svg coordinates back to 0-1 ratings', () => {
+    const chart = buildDualAxisChart(threeEmailSection(), today);
+    const midX = chart.plot.x + chart.plot.w / 2;
+    const midY = chart.plot.y + chart.plot.h / 2;
+    const rating = ratingFromSvg(midX, midY, chart);
+    expect(rating.urgency).toBeCloseTo(0.5, 5);
+    expect(rating.importance).toBeCloseTo(0.5, 5);
+  });
+
+  it('reorders both lists when a point is rated', () => {
+    const section = threeEmailSection();
+    const next = applyRatingToSection(section, 3, 0.99, 0.98, today);
+    expect(next.byUrgency[0]?.id).toBe(3);
+    expect(next.byImportance[0]?.id).toBe(3);
+    expect(next.allEmails.find((item) => item.id === 3)?.ratingUrgency).toBe(0.99);
+  });
 });
 
 function threeEmailSection(): DualAxisSection {
@@ -92,10 +111,13 @@ function email(partial: Partial<EmailSummary> & { id: number }): EmailSummary {
     dueDate: null,
     blendedScore: null,
     batchRank: null,
+    ratingUrgency: null,
+    ratingImportance: null,
     injectionSuspected: false,
     needsManualReview: false,
     classificationSource: null,
     gmailUrl: null,
+    actionNeeded: false,
     ...partial
   };
 }

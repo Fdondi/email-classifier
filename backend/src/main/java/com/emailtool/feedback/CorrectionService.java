@@ -9,6 +9,9 @@ import com.emailtool.domain.Correction;
 import com.emailtool.domain.Email;
 import com.emailtool.persist.CorrectionRepository;
 import com.emailtool.persist.EmailRepository;
+import com.emailtool.rank.RatingScores;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -16,9 +19,11 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -49,19 +54,108 @@ public class CorrectionService {
 
     @Transactional
     public Correction correctCategory(long emailId, Category corrected) {
+        return apply(emailId, corrected, null);
+    }
+
+    @Transactional
+    public Correction correctActionNeeded(long emailId, boolean actionNeeded) {
+        return apply(emailId, null, actionNeeded);
+    }
+
+    @Transactional
+    public Correction apply(long emailId, Category correctedCategory, Boolean actionNeeded) {
         Email email = emailRepository
                 .findById(emailId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Email not found"));
-        Category predicted = email.getCategory();
-        if (predicted == corrected) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Category is already " + corrected.name());
+        boolean categoryChange = correctedCategory != null && correctedCategory != email.getCategory();
+        boolean actionChange = actionNeeded != null && actionNeeded != email.isActionNeeded();
+        if (!categoryChange && !actionChange) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Nothing to correct");
         }
         Instant now = Instant.now();
+        Correction last = null;
+        if (categoryChange) {
+            last = saveCorrection(
+                    email,
+                    "category",
+                    email.getCategory() == null ? "" : email.getCategory().name(),
+                    correctedCategory.name(),
+                    now);
+            email.setCategory(correctedCategory);
+        }
+        if (actionChange) {
+            last = saveCorrection(
+                    email,
+                    "action_needed",
+                    Boolean.toString(email.isActionNeeded()),
+                    Boolean.toString(actionNeeded),
+                    now);
+            email.setActionNeeded(actionNeeded);
+        }
+        email.setClassificationSource(ClassificationSource.USER);
+        email.setNeedsManualReview(false);
+        email.setConfidence(1.0);
+        email.setClassifiedAt(now);
+        if (LIST_UNSUBSCRIBE_SUMMARY.equals(email.getSummary())) {
+            email.setSummary(EmailMapper.cap(email.getSubject(), properties.getSummaryMaxChars()));
+        }
+        emailRepository.save(email);
+        return last;
+    }
+
+    @Transactional
+    public Correction correctRating(
+            long emailId, double urgency, double importance, Double predictedUrgency, Double predictedImportance) {
+        Email email = emailRepository
+                .findById(emailId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Email not found"));
+        double nextUrgency = RatingScores.clamp01(urgency);
+        double nextImportance = RatingScores.clamp01(importance);
+        LocalDate today = LocalDate.now();
+        double previousUrgency =
+                predictedUrgency != null ? RatingScores.clamp01(predictedUrgency) : RatingScores.urgency(email, today);
+        double previousImportance =
+                predictedImportance != null
+                        ? RatingScores.clamp01(predictedImportance)
+                        : RatingScores.importance(email);
+        Instant now = Instant.now();
+        Correction saved = saveCorrection(
+                email, "rating", ratingJson(previousUrgency, previousImportance), ratingJson(nextUrgency, nextImportance), now);
+        email.setRatingUrgency(nextUrgency);
+        email.setRatingImportance(nextImportance);
+        email.setBlendedScore(nextImportance);
+        email.setInterestScore((int) Math.round(nextImportance * 100));
+        emailRepository.save(email);
+        return saved;
+    }
+
+    @Transactional
+    public Correction correctDueDate(long emailId, LocalDate dueDate) {
+        Email email = emailRepository
+                .findById(emailId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Email not found"));
+        LocalDate previous = email.getDueDate();
+        if (Objects.equals(previous, dueDate)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Due date is already set");
+        }
+        Instant now = Instant.now();
+        Correction saved = saveCorrection(
+                email,
+                "due_date",
+                previous == null ? "" : previous.toString(),
+                dueDate == null ? "" : dueDate.toString(),
+                now);
+        email.setDueDate(dueDate);
+        emailRepository.save(email);
+        return saved;
+    }
+
+    private Correction saveCorrection(Email email, String field, String predicted, String corrected, Instant now) {
         Correction correction = new Correction();
         correction.setEmail(email);
-        correction.setField("category");
-        correction.setPredicted(predicted == null ? "" : predicted.name());
-        correction.setCorrected(corrected.name());
+        correction.setField(field);
+        correction.setPredicted(predicted);
+        correction.setCorrected(corrected);
         correction.setModelVersion(nullToEmpty(email.getModelVersion()));
         correction.setPromptVersion(
                 email.getPromptVersion() == null || email.getPromptVersion().isBlank()
@@ -72,16 +166,6 @@ public class CorrectionService {
         correction.setClassificationSource(
                 email.getClassificationSource() == null ? "" : email.getClassificationSource().name());
         correction.setCreatedAt(now);
-
-        email.setCategory(corrected);
-        email.setClassificationSource(ClassificationSource.USER);
-        email.setNeedsManualReview(false);
-        email.setConfidence(1.0);
-        email.setClassifiedAt(now);
-        if (LIST_UNSUBSCRIBE_SUMMARY.equals(email.getSummary())) {
-            email.setSummary(EmailMapper.cap(email.getSubject(), properties.getSummaryMaxChars()));
-        }
-        emailRepository.save(email);
         Correction saved = correctionRepository.save(correction);
         if (TransactionSynchronizationManager.isSynchronizationActive()) {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
@@ -126,6 +210,10 @@ public class CorrectionService {
             example.put("subject", email.getSubject());
             example.put("text_plain", body);
             example.put("created_at", correction.getCreatedAt().toString());
+            if ("rating".equals(correction.getField())) {
+                addRatingNumbers(example, correction.getPredicted(), "predicted");
+                addRatingNumbers(example, correction.getCorrected(), "corrected");
+            }
             Files.writeString(
                     file,
                     objectMapper.writeValueAsString(example) + "\n",
@@ -135,6 +223,23 @@ public class CorrectionService {
         } catch (IOException e) {
             throw new IllegalStateException("Correction saved in the database but training JSONL could not be written: "
                     + e.getMessage(), e);
+        }
+    }
+
+    private void addRatingNumbers(Map<String, Object> example, String json, String prefix) throws JsonProcessingException {
+        JsonNode node = objectMapper.readTree(json);
+        example.put(prefix + "_urgency", node.path("urgency").asDouble());
+        example.put(prefix + "_importance", node.path("importance").asDouble());
+    }
+
+    private String ratingJson(double urgency, double importance) {
+        Map<String, Double> value = new LinkedHashMap<>();
+        value.put("urgency", urgency);
+        value.put("importance", importance);
+        try {
+            return objectMapper.writeValueAsString(value);
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("Could not serialize rating correction", e);
         }
     }
 

@@ -23,6 +23,7 @@ class ClassifierJsonParserTest {
                 """;
         ClassifierJson parsed = parser.parse(json).orElseThrow();
         assertEquals(Category.EVENT, parsed.category());
+        assertEquals(false, parsed.actionNeeded());
         assertEquals(80, parsed.interestScore());
         assertEquals("2025-09-08", parsed.dueDate().toString());
         assertEquals(false, parsed.injectionSuspected());
@@ -53,5 +54,26 @@ class ClassifierJsonParserTest {
                 """;
         ClassifierJson parsed = parser.parse(fenced).orElseThrow();
         assertEquals(Category.SPAM, parsed.category());
+    }
+
+    @Test
+    void defaultsActionNeededFromCategoryWhenFieldMissing() {
+        ClassifierJson pay = parser.parse(
+                        "{\"category\":\"ACTION_NEEDED_PAY\",\"confidence\":0.9,\"summary\":\"Invoice\"}")
+                .orElseThrow();
+        assertEquals(true, pay.actionNeeded());
+        ClassifierJson event = parser.parse(
+                        "{\"category\":\"EVENT\",\"confidence\":0.9,\"summary\":\"Talk\"}")
+                .orElseThrow();
+        assertEquals(false, event.actionNeeded());
+    }
+
+    @Test
+    void honorsExplicitActionNeededIndependentOfCategory() {
+        ClassifierJson parsed = parser.parse(
+                        "{\"category\":\"EVENT\",\"confidence\":0.9,\"summary\":\"RSVP\",\"action_needed\":true}")
+                .orElseThrow();
+        assertEquals(Category.EVENT, parsed.category());
+        assertEquals(true, parsed.actionNeeded());
     }
 }

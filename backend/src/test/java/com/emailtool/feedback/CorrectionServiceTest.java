@@ -17,6 +17,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.LocalDate;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -87,5 +88,125 @@ class CorrectionServiceTest {
         assertEquals("PROMOTION", row.get("corrected").asText());
         assertEquals("buy coins now", row.get("text_plain").asText());
         assertEquals("Claim your $SWEAT", row.get("subject").asText());
+    }
+
+    @Test
+    void togglesActionNeededWithoutChangingCategory() throws Exception {
+        Email email = new Email();
+        email.setId(4L);
+        email.setCategory(Category.EVENT);
+        email.setActionNeeded(false);
+        email.setClassificationSource(ClassificationSource.LLM);
+        email.setFromAddress("events@example.test");
+        email.setSubject("RSVP please");
+        email.setTextPlain("please reply");
+        when(emailRepository.findById(4L)).thenReturn(Optional.of(email));
+
+        Correction saved = service.correctActionNeeded(4L, true);
+
+        assertEquals(Category.EVENT, email.getCategory());
+        assertTrue(email.isActionNeeded());
+        assertEquals(ClassificationSource.USER, email.getClassificationSource());
+        assertEquals("action_needed", saved.getField());
+        assertEquals("false", saved.getPredicted());
+        assertEquals("true", saved.getCorrected());
+
+        Path jsonl = tempDir.resolve("corrections.jsonl");
+        JsonNode row = new ObjectMapper().readTree(Files.readString(jsonl));
+        assertEquals("action_needed", row.get("field").asText());
+        assertEquals("true", row.get("corrected").asText());
+    }
+
+    @Test
+    void categoryCorrectionLeavesActionNeededUnchanged() {
+        Email email = new Email();
+        email.setId(4L);
+        email.setCategory(Category.EVENT);
+        email.setActionNeeded(true);
+        email.setClassificationSource(ClassificationSource.LLM);
+        email.setFromAddress("events@example.test");
+        email.setSubject("Meetup");
+        email.setTextPlain("thursday");
+        when(emailRepository.findById(4L)).thenReturn(Optional.of(email));
+
+        service.correctCategory(4L, Category.JOB_OFFERS);
+
+        assertEquals(Category.JOB_OFFERS, email.getCategory());
+        assertTrue(email.isActionNeeded());
+    }
+
+    @Test
+    void storesRatingAndAppendsJsonl() throws Exception {
+        Email email = new Email();
+        email.setId(4L);
+        email.setBlendedScore(0.3);
+        email.setDueDate(LocalDate.of(2026, 9, 20));
+        email.setSubject("Briefing");
+        email.setFromAddress("events@example.test");
+        email.setTextPlain("tomorrow");
+        when(emailRepository.findById(4L)).thenReturn(Optional.of(email));
+
+        Correction saved = service.correctRating(4L, 0.9, 0.8, 0.2, 0.3);
+
+        assertEquals(0.9, email.getRatingUrgency());
+        assertEquals(0.8, email.getRatingImportance());
+        assertEquals(0.8, email.getBlendedScore());
+        assertEquals(80, email.getInterestScore());
+        assertEquals("rating", saved.getField());
+        JsonNode predicted = new ObjectMapper().readTree(saved.getPredicted());
+        JsonNode corrected = new ObjectMapper().readTree(saved.getCorrected());
+        assertEquals(0.2, predicted.get("urgency").asDouble());
+        assertEquals(0.3, predicted.get("importance").asDouble());
+        assertEquals(0.9, corrected.get("urgency").asDouble());
+        assertEquals(0.8, corrected.get("importance").asDouble());
+
+        Path jsonl = tempDir.resolve("corrections.jsonl");
+        JsonNode row = new ObjectMapper().readTree(Files.readString(jsonl));
+        assertEquals("rating", row.get("field").asText());
+        assertEquals(0.9, row.get("corrected_urgency").asDouble());
+        assertEquals(0.8, row.get("corrected_importance").asDouble());
+        assertEquals("Briefing", row.get("subject").asText());
+    }
+
+    @Test
+    void storesDueDateAndAppendsJsonl() throws Exception {
+        Email email = new Email();
+        email.setId(4L);
+        email.setDueDate(LocalDate.of(2026, 9, 20));
+        email.setSubject("Invoice");
+        email.setFromAddress("billing@example.test");
+        email.setTextPlain("pay soon");
+        when(emailRepository.findById(4L)).thenReturn(Optional.of(email));
+
+        Correction saved = service.correctDueDate(4L, LocalDate.of(2026, 9, 22));
+
+        assertEquals(LocalDate.of(2026, 9, 22), email.getDueDate());
+        assertEquals("due_date", saved.getField());
+        assertEquals("2026-09-20", saved.getPredicted());
+        assertEquals("2026-09-22", saved.getCorrected());
+
+        Path jsonl = tempDir.resolve("corrections.jsonl");
+        JsonNode row = new ObjectMapper().readTree(Files.readString(jsonl));
+        assertEquals("due_date", row.get("field").asText());
+        assertEquals("2026-09-22", row.get("corrected").asText());
+    }
+
+    @Test
+    void storesActionNeededAndAppendsJsonl() throws Exception {
+        Email email = new Email();
+        email.setId(4L);
+        email.setCategory(Category.EVENT);
+        email.setActionNeeded(false);
+        email.setSubject("RSVP");
+        email.setFromAddress("events@example.test");
+        email.setTextPlain("please reply");
+        when(emailRepository.findById(4L)).thenReturn(Optional.of(email));
+
+        Correction saved = service.correctActionNeeded(4L, true);
+
+        assertTrue(email.isActionNeeded());
+        assertEquals("action_needed", saved.getField());
+        assertEquals("false", saved.getPredicted());
+        assertEquals("true", saved.getCorrected());
     }
 }

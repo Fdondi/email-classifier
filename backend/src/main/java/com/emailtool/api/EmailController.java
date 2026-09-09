@@ -1,7 +1,9 @@
 package com.emailtool.api;
 
 import com.emailtool.api.dto.CorrectionRequest;
+import com.emailtool.api.dto.DueDateRequest;
 import com.emailtool.api.dto.EmailDetailDto;
+import com.emailtool.api.dto.RatingRequest;
 import com.emailtool.domain.Email;
 import com.emailtool.domain.EmailRemoteResource;
 import com.emailtool.feedback.CorrectionService;
@@ -65,7 +67,20 @@ public class EmailController {
 
     @PostMapping("/{id}/corrections")
     public EmailDetailDto correct(@PathVariable long id, @Valid @RequestBody CorrectionRequest request) {
-        correctionService.correctCategory(id, request.category());
+        correctionService.apply(id, request.category(), request.actionNeeded());
+        return digestService.detail(id);
+    }
+
+    @PostMapping("/{id}/rating")
+    public EmailDetailDto rate(@PathVariable long id, @Valid @RequestBody RatingRequest request) {
+        correctionService.correctRating(
+                id, request.urgency(), request.importance(), request.predictedUrgency(), request.predictedImportance());
+        return digestService.detail(id);
+    }
+
+    @PostMapping("/{id}/due-date")
+    public EmailDetailDto dueDate(@PathVariable long id, @RequestBody DueDateRequest request) {
+        correctionService.correctDueDate(id, request.dueDate());
         return digestService.detail(id);
     }
 

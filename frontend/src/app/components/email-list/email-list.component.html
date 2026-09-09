@@ -1,16 +1,12 @@
-@if (emails.length === 0) {
-  <p class="muted">{{ emptyText }}</p>
-} @else {
-  @for (group of groups(); track $index) {
-    @if ($index > 0) {
-      <hr class="email-group-split" />
-    }
-    @if (group.label) {
-      <p class="email-group-label">{{ group.label }}</p>
-    }
-    <ul class="email-list">
-      @for (email of group.emails; track email.id) {
-        <li class="email-item" [class.email-item-expired]="expired(email)">
+<ng-template #emailRows let-emails>
+  <ul class="email-list">
+    @for (email of emails; track email.id) {
+      <li
+        class="email-item"
+        [class.email-item-expired]="expired(email)"
+        [class.email-item-drop]="dropTargetId === email.id"
+        (dragover)="onDragOver($event, email)"
+        (drop)="onDrop($event, email, emails)">
           <a
             class="email-row"
             [href]="email.gmailUrl || '/email/' + email.id"
@@ -35,35 +31,166 @@
             @if (recoveryMode) {
               <button
                 type="button"
-                class="button-quiet"
+                class="email-icon-btn"
+                title="Unhide"
                 [disabled]="busyId === email.id"
+                [attr.aria-label]="'Unhide ' + (email.subject || 'email')"
                 (click)="unhide(email, $event)">
-                Unhide
+                <svg viewBox="0 0 16 16" aria-hidden="true">
+                  <path
+                    d="M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8Z"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.4" />
+                  <circle cx="8" cy="8" r="2" fill="none" stroke="currentColor" stroke-width="1.4" />
+                </svg>
               </button>
             } @else {
               <button
                 type="button"
-                class="button-quiet"
+                class="email-icon-btn"
+                title="Hide"
                 [disabled]="busyId === email.id"
+                [attr.aria-label]="'Hide ' + (email.subject || 'email')"
                 (click)="hide(email, $event)">
-                Hide
+                <svg viewBox="0 0 16 16" aria-hidden="true">
+                  <path
+                    d="M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8Z"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.4" />
+                  <circle cx="8" cy="8" r="2" fill="none" stroke="currentColor" stroke-width="1.4" />
+                  <path d="M3 13.5 13 2.5" fill="none" stroke="currentColor" stroke-width="1.4" />
+                </svg>
               </button>
             }
-            <select
-              class="category-select"
+            <button
+              type="button"
+              class="email-icon-btn"
+              [class.is-on]="!!email.category"
+              [class.is-open]="menuOpen(email, 'category')"
+              title="Edit category"
               [disabled]="busyId === email.id"
-              (change)="reassign(email, $event)"
-              [attr.aria-label]="'Category for ' + (email.subject || 'email')">
-              @if (!email.category) {
-                <option value="" disabled selected>Unclassified</option>
-              }
-              @for (category of categories; track category) {
-                <option [value]="category" [selected]="email.category === category">{{ label(category) }}</option>
-              }
-            </select>
+              [attr.aria-expanded]="menuOpen(email, 'category')"
+              [attr.aria-label]="'Edit category for ' + (email.subject || 'email')"
+              (click)="toggleMenu(email, 'category', $event)">
+              <svg viewBox="0 0 16 16" aria-hidden="true">
+                <path
+                  d="M2.5 3.5h6.2L14 9.8 9.8 14 3.5 7.7V3.5Z"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.4"
+                  stroke-linejoin="round" />
+                <circle cx="5.5" cy="6" r="0.9" fill="currentColor" />
+              </svg>
+            </button>
+            <button
+              type="button"
+              class="email-icon-btn"
+              [class.is-on]="!!email.dueDate"
+              [class.is-open]="menuOpen(email, 'deadline')"
+              title="Edit deadline"
+              [disabled]="busyId === email.id"
+              [attr.aria-expanded]="menuOpen(email, 'deadline')"
+              [attr.aria-label]="'Edit deadline for ' + (email.subject || 'email')"
+              (click)="toggleMenu(email, 'deadline', $event)">
+              <svg viewBox="0 0 16 16" aria-hidden="true">
+                <rect x="2.5" y="3.5" width="11" height="10" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.4" />
+                <path d="M2.5 6.5h11M5.5 2.5v2M10.5 2.5v2" fill="none" stroke="currentColor" stroke-width="1.4" />
+              </svg>
+            </button>
+            <button
+              type="button"
+              class="email-icon-btn"
+              [class.is-on]="email.actionNeeded"
+              title="Toggle action needed"
+              [attr.aria-pressed]="email.actionNeeded"
+              [disabled]="busyId === email.id"
+              [attr.aria-label]="(email.actionNeeded ? 'Remove action needed from ' : 'Mark action needed for ') + (email.subject || 'email')"
+              (click)="toggleActionNeeded(email, $event)">
+              <svg viewBox="0 0 16 16" aria-hidden="true">
+                <path
+                  d="M4 14V3h.2l7.3 2.7L4.2 8.5"
+                  [attr.fill]="email.actionNeeded ? 'currentColor' : 'none'"
+                  stroke="currentColor"
+                  stroke-width="1.4"
+                  stroke-linejoin="round" />
+              </svg>
+            </button>
+            <button
+              type="button"
+              class="email-icon-btn email-drag-handle"
+              title="Drag to reorder"
+              draggable="true"
+              [disabled]="busyId === email.id"
+              [attr.aria-label]="'Reorder ' + (email.subject || 'email')"
+              (dragstart)="onDragStart($event, email)"
+              (dragend)="onDragEnd()">
+              <svg viewBox="0 0 16 16" aria-hidden="true">
+                <circle cx="6" cy="4" r="1.1" fill="currentColor" />
+                <circle cx="10" cy="4" r="1.1" fill="currentColor" />
+                <circle cx="6" cy="8" r="1.1" fill="currentColor" />
+                <circle cx="10" cy="8" r="1.1" fill="currentColor" />
+                <circle cx="6" cy="12" r="1.1" fill="currentColor" />
+                <circle cx="10" cy="12" r="1.1" fill="currentColor" />
+              </svg>
+            </button>
+            @if (menuOpen(email, 'category')) {
+              <div class="email-action-menu" role="menu" (click)="$event.stopPropagation()">
+                @for (category of categories; track category) {
+                  <button
+                    type="button"
+                    role="menuitem"
+                    [class.is-current]="email.category === category"
+                    (click)="pickCategory(email, category, $event)">
+                    {{ label(category) }}
+                  </button>
+                }
+              </div>
+            }
+            @if (menuOpen(email, 'deadline')) {
+              <div class="email-action-menu" (click)="$event.stopPropagation()">
+                <label class="deadline-label">
+                  Deadline
+                  <input
+                    class="deadline-input"
+                    type="date"
+                    [value]="email.dueDate || ''"
+                    [disabled]="busyId === email.id"
+                    (change)="saveDueDate(email, $event)" />
+                </label>
+                @if (email.dueDate) {
+                  <button type="button" class="button-quiet" (click)="saveDueDateValue(email, null, $event)">
+                    Clear deadline
+                  </button>
+                }
+              </div>
+            }
           </div>
         </li>
       }
     </ul>
+</ng-template>
+
+@if (emails.length === 0) {
+  <p class="muted">{{ emptyText }}</p>
+} @else {
+  @for (group of groups(); track $index) {
+    @if (group.collapsible) {
+      <div class="email-expired-section">
+        <button
+          type="button"
+          class="email-expired-toggle"
+          [attr.aria-expanded]="expiredOpen()"
+          (click)="toggleExpired()">
+          Expired ({{ group.emails.length }})
+        </button>
+        @if (expiredOpen()) {
+          <ng-container [ngTemplateOutlet]="emailRows" [ngTemplateOutletContext]="{ $implicit: group.emails }" />
+        }
+      </div>
+    } @else {
+      <ng-container [ngTemplateOutlet]="emailRows" [ngTemplateOutletContext]="{ $implicit: group.emails }" />
+    }
   }
 }

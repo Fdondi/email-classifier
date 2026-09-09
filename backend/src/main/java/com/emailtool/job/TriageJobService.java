@@ -250,6 +250,7 @@ public class TriageJobService {
 
     private void applyLlm(Email email, ClassifierJson json, boolean fallback) {
         email.setCategory(json.category());
+        email.setActionNeeded(Boolean.TRUE.equals(json.actionNeeded()));
         email.setConfidence(json.confidence());
         email.setSummary(json.summary());
         email.setInterestScore(json.interestScore());

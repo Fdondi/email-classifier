@@ -37,7 +37,11 @@ public class RankingService {
         for (Category category : Category.values()) {
             List<Email> emails = emailRepository.findByCategory(category);
             for (Email email : emails) {
-                email.setBlendedScore(blend(email));
+                if (email.getRatingImportance() != null) {
+                    email.setBlendedScore(email.getRatingImportance());
+                } else {
+                    email.setBlendedScore(blend(email));
+                }
             }
             if (category.isSummarized() || category.isDualAxis()) {
                 applyBatchRank(emails);

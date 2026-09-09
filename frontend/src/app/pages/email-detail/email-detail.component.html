@@ -27,6 +27,15 @@
         }
       </select>
     </label>
+    <button
+      type="button"
+      class="button-quiet"
+      [class.button-action-needed]="email.actionNeeded"
+      [attr.aria-pressed]="email.actionNeeded"
+      [disabled]="savingActionNeeded"
+      (click)="toggleActionNeeded()">
+      Action needed
+    </button>
     @if (email.userHidden) {
       <button type="button" class="button-quiet" (click)="unhide()" [disabled]="savingVisibility">Unhide</button>
     } @else {

@@ -1,8 +1,11 @@
-import { DualAxisSection, EmailSummary, isExpiredDueDate, todayIsoDate } from '../../models/email.model';
+import { DualAxisSection, EmailSummary, todayIsoDate } from '../../models/email.model';
 
 export const CHART_WIDTH = 640;
 export const CHART_HEIGHT = 340;
 export const CHART_MARGIN = { top: 18, right: 18, bottom: 44, left: 52 };
+export const DUAL_TOP_N = 5;
+/** Same horizon as IMAP: overdue/today = 1, 14+ days out = 0. */
+export const URGENCY_HORIZON_DAYS = 14;
 
 export const URGENCY_RGB = { r: 196, g: 92, b: 38 };
 export const IMPORTANCE_RGB = { r: 48, g: 118, b: 186 };
@@ -40,6 +43,8 @@ export interface DualAxisChartModel {
   bothBand: ChartRect | null;
   urgencyCutoffX: number | null;
   importanceCutoffY: number | null;
+  xScale: { min: number; span: number };
+  yScale: { min: number; span: number };
   urgencyFill: string;
   importanceFill: string;
   bothFill: string;
@@ -57,23 +62,36 @@ export function rgbCss(color: Rgb): string {
   return `rgb(${color.r}, ${color.g}, ${color.b})`;
 }
 
-/** Higher is more urgent: earlier due date, then earlier sent; missing due dates last. */
-export function urgencyScore(email: EmailSummary): number {
-  if (email.dueDate) {
-    return -epochDays(email.dueDate);
+/** Higher is more urgent: user rating, else due date within the 14-day horizon. */
+export function urgencyScore(email: EmailSummary, today: string = todayIsoDate()): number {
+  if (email.ratingUrgency != null) {
+    return clamp01(email.ratingUrgency);
   }
-  if (email.dateSent) {
-    return -1e9 - Date.parse(email.dateSent) / 86_400_000;
+  if (!email.dueDate) {
+    return 0;
   }
-  return -2e9;
+  const days = epochDays(email.dueDate) - epochDays(today);
+  if (Number.isNaN(days) || !Number.isFinite(days)) {
+    return 0;
+  }
+  if (days <= 0) {
+    return 1;
+  }
+  if (days >= URGENCY_HORIZON_DAYS) {
+    return 0;
+  }
+  return 1 - days / URGENCY_HORIZON_DAYS;
 }
 
-/** Higher is more important: expired first (same as the importance list), then blended score. */
-export function importanceScore(email: EmailSummary, today: string = todayIsoDate()): number {
-  const blended = email.blendedScore ?? -1;
-  const expiredBoost = isExpiredDueDate(email.dueDate, today) ? 1.01 : 0;
-  const rankTie = email.batchRank == null ? 0 : -email.batchRank * 1e-6;
-  return expiredBoost + blended + rankTie;
+/** Higher is more important: user rating, else blended score. */
+export function importanceScore(email: EmailSummary): number {
+  if (email.ratingImportance != null) {
+    return clamp01(email.ratingImportance);
+  }
+  if (email.blendedScore == null) {
+    return 0;
+  }
+  return clamp01(email.blendedScore);
 }
 
 export function emailsForChart(section: DualAxisSection): EmailSummary[] {
@@ -85,6 +103,53 @@ export function emailsForChart(section: DualAxisSection): EmailSummary[] {
     byId.set(email.id, email);
   }
   return [...byId.values()];
+}
+
+export function ratingFromSvg(
+  svgX: number,
+  svgY: number,
+  model: DualAxisChartModel
+): { urgency: number; importance: number } {
+  const urgency = model.xScale.min + ((svgX - model.plot.x) / model.plot.w) * model.xScale.span;
+  const importance = model.yScale.min + (1 - (svgY - model.plot.y) / model.plot.h) * model.yScale.span;
+  return { urgency: clamp01(urgency), importance: clamp01(importance) };
+}
+
+export function svgPointFromClient(clientX: number, clientY: number, svg: SVGSVGElement): { x: number; y: number } {
+  const rect = svg.getBoundingClientRect();
+  if (rect.width === 0 || rect.height === 0) {
+    return { x: 0, y: 0 };
+  }
+  return {
+    x: ((clientX - rect.left) / rect.width) * CHART_WIDTH,
+    y: ((clientY - rect.top) / rect.height) * CHART_HEIGHT
+  };
+}
+
+export function applyRatingToSection(
+  section: DualAxisSection,
+  emailId: number,
+  urgency: number,
+  importance: number,
+  today: string = todayIsoDate()
+): DualAxisSection {
+  const patch = (email: EmailSummary): EmailSummary =>
+    email.id === emailId
+      ? {
+          ...email,
+          ratingUrgency: clamp01(urgency),
+          ratingImportance: clamp01(importance),
+          blendedScore: clamp01(importance)
+        }
+      : email;
+  const allEmails = emailsForChart(section).map(patch);
+  const byUrgency = [...allEmails]
+    .sort((a, b) => urgencyScore(b, today) - urgencyScore(a, today) || a.id - b.id)
+    .slice(0, DUAL_TOP_N);
+  const byImportance = [...allEmails]
+    .sort((a, b) => importanceScore(b) - importanceScore(a) || a.id - b.id)
+    .slice(0, DUAL_TOP_N);
+  return { ...section, allEmails, byUrgency, byImportance };
 }
 
 export function buildDualAxisChart(
@@ -102,23 +167,23 @@ export function buildDualAxisChart(
   const importanceIds = new Set(section.byImportance.map((email) => email.id));
   const scored = emails.map((email) => ({
     email,
-    urgency: urgencyScore(email),
-    importance: importanceScore(email, today)
+    urgency: urgencyScore(email, today),
+    importance: importanceScore(email)
   }));
-  const xScale = paddedScale(scored.map((item) => item.urgency));
-  const yScale = paddedScale(scored.map((item) => item.importance));
+  const xScale = paddedScale([0, 1]);
+  const yScale = paddedScale([0, 1]);
   const toX = (urgency: number) => plot.x + ((urgency - xScale.min) / xScale.span) * plot.w;
   const toY = (importance: number) => plot.y + (1 - (importance - yScale.min) / yScale.span) * plot.h;
 
   const urgencyCutoff = section.byUrgency.length
     ? bandThreshold(
-        Math.min(...section.byUrgency.map((email) => urgencyScore(email))),
+        Math.min(...section.byUrgency.map((email) => urgencyScore(email, today))),
         scored.map((item) => item.urgency)
       )
     : null;
   const importanceCutoff = section.byImportance.length
     ? bandThreshold(
-        Math.min(...section.byImportance.map((email) => importanceScore(email, today))),
+        Math.min(...section.byImportance.map((email) => importanceScore(email))),
         scored.map((item) => item.importance)
       )
     : null;
@@ -150,6 +215,8 @@ export function buildDualAxisChart(
     bothBand: bands.bothBand,
     urgencyCutoffX,
     importanceCutoffY,
+    xScale,
+    yScale,
     urgencyFill: rgbCss(URGENCY_RGB),
     importanceFill: rgbCss(IMPORTANCE_RGB),
     bothFill: rgbCss(rgbSum(URGENCY_RGB, IMPORTANCE_RGB))
@@ -195,6 +262,10 @@ function paddedScale(values: number[]): { min: number; span: number } {
 
 function clamp(value: number, lo: number, hi: number): number {
   return Math.min(hi, Math.max(lo, value));
+}
+
+function clamp01(value: number): number {
+  return clamp(value, 0, 1);
 }
 
 function rect(x: number, y: number, w: number, h: number): ChartRect {

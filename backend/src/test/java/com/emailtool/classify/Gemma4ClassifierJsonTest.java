@@ -22,6 +22,7 @@ class Gemma4ClassifierJsonTest {
         String content = Files.readString(fixture("gemma-4-classify-content.txt"));
         ClassifierJson parsed = parser.parse(content).orElseThrow();
         assertEquals(Category.ACTION_NEEDED_PAY, parsed.category());
+        assertEquals(true, parsed.actionNeeded());
         assertEquals("en", parsed.language());
         assertEquals(false, parsed.injectionSuspected());
         assertEquals("2025-09-15", parsed.dueDate().toString());
@@ -34,6 +35,7 @@ class Gemma4ClassifierJsonTest {
         assertTrue(content.contains("ACTION_NEEDED_PAY"), content);
         ClassifierJson parsed = parser.parse(content).orElseThrow();
         assertEquals(Category.ACTION_NEEDED_PAY, parsed.category());
+        assertEquals(true, parsed.actionNeeded());
     }
 
     @Test

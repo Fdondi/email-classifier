@@ -4,7 +4,7 @@ import java.util.List;
 
 public record DigestDto(
         List<EmailSummaryDto> quarantine,
-        List<EmailSummaryDto> actionNeeded,
+        DualAxisSectionDto actionNeeded,
         DualAxisSectionDto events,
         DualAxisSectionDto jobOffers,
         SummarizedSectionDto promotions,

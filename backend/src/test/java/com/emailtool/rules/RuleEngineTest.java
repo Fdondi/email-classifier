@@ -40,6 +40,7 @@ class RuleEngineTest {
         email.setFromAddress("billing@invoices.test");
         assertTrue(engine.classify(email));
         assertEquals(Category.ACTION_NEEDED_PAY, email.getCategory());
+        assertTrue(email.isActionNeeded());
         assertEquals(ClassificationSource.RULE, email.getClassificationSource());
     }
 
@@ -62,6 +63,7 @@ class RuleEngineTest {
         email.setDmarcResult("fail");
         assertTrue(engine.classify(email));
         assertEquals(Category.SPAM, email.getCategory());
+        assertFalse(email.isActionNeeded());
     }
 
     @Test

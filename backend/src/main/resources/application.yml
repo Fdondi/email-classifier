@@ -44,8 +44,8 @@ app:
     min-free-vram-mib: 18000
     auto-load: true
     auto-unload: true
-  taxonomy-version: 1
-  prompt-version: "4"
+  taxonomy-version: 2
+  prompt-version: "5"
   body-truncate-chars: 8000
   subject-max-chars: 150
   summary-max-chars: 200

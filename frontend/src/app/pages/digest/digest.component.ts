@@ -165,6 +165,13 @@ export class DigestComponent implements OnInit, OnDestroy {
     return this.extra[category] ?? [];
   }
 
+  onRated(section: 'actionNeeded' | 'events' | 'jobOffers', next: DualAxisSection): void {
+    if (!this.digest) {
+      return;
+    }
+    this.digest = { ...this.digest, [section]: next };
+  }
+
   hasDual(section: DualAxisSection): boolean {
     return section.byUrgency.length > 0 || section.byImportance.length > 0 || (section.allEmails?.length ?? 0) > 0;
   }
