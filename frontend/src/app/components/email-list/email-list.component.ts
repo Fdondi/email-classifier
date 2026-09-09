@@ -1,7 +1,7 @@
 import { DatePipe } from '@angular/common';
 import { Component, EventEmitter, Input, Output } from '@angular/core';
 import { Router } from '@angular/router';
-import { CATEGORIES, Category, EmailSummary, categoryLabel } from '../../models/email.model';
+import { CATEGORIES, Category, EmailSummary, categoryLabel, isExpiredDueDate } from '../../models/email.model';
 import { ApiService, describeHttpError } from '../../services/api.service';
 
 @Component({
@@ -29,6 +29,23 @@ export class EmailListComponent {
 
   label(category: EmailSummary['category']): string {
     return categoryLabel(category);
+  }
+
+  groups(): { label: string | null; emails: EmailSummary[] }[] {
+    const expired = this.emails.filter((email) => isExpiredDueDate(email.dueDate));
+    const current = this.emails.filter((email) => !isExpiredDueDate(email.dueDate));
+    const groups: { label: string | null; emails: EmailSummary[] }[] = [];
+    if (expired.length) {
+      groups.push({ label: 'Expired', emails: expired });
+    }
+    if (current.length) {
+      groups.push({ label: null, emails: current });
+    }
+    return groups;
+  }
+
+  expired(email: EmailSummary): boolean {
+    return isExpiredDueDate(email.dueDate);
   }
 
   /** Open Gmail when we have a deep link; otherwise stay in-app. */

@@ -69,6 +69,7 @@ export interface EmailDetail {
 export interface DualAxisSection {
   byUrgency: EmailSummary[];
   byImportance: EmailSummary[];
+  allEmails: EmailSummary[];
   total: number;
 }
 
@@ -157,6 +158,18 @@ export interface SystemStatus {
   llmError: string | null;
 }
 
+export function todayIsoDate(now: Date = new Date()): string {
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+/** True when dueDate is a YYYY-MM-DD string strictly before today (local). */
+export function isExpiredDueDate(dueDate: string | null, today: string = todayIsoDate()): boolean {
+  return dueDate != null && dueDate < today;
+}
+
 export function isFixtureSummary(email: EmailSummary): boolean {
   return (email.subject ?? '').startsWith('FAKE TEST DATA');
 }
@@ -173,11 +186,13 @@ export function withoutFixtureDigest(digest: Digest): Digest {
     events: {
       byUrgency: withoutFixtures(digest.events.byUrgency),
       byImportance: withoutFixtures(digest.events.byImportance),
+      allEmails: withoutFixtures(digest.events.allEmails ?? []),
       total: digest.events.total
     },
     jobOffers: {
       byUrgency: withoutFixtures(digest.jobOffers.byUrgency),
       byImportance: withoutFixtures(digest.jobOffers.byImportance),
+      allEmails: withoutFixtures(digest.jobOffers.allEmails ?? []),
       total: digest.jobOffers.total
     },
     promotions: {

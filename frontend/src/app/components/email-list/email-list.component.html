@@ -1,59 +1,69 @@
 @if (emails.length === 0) {
   <p class="muted">{{ emptyText }}</p>
 } @else {
-  <ul class="email-list">
-    @for (email of emails; track email.id) {
-      <li class="email-item">
-        <a
-          class="email-row"
-          [href]="email.gmailUrl || '/email/' + email.id"
-          [attr.target]="email.gmailUrl ? '_blank' : null"
-          [attr.rel]="email.gmailUrl ? 'noopener noreferrer' : null"
-          (click)="openRow(email, $event)">
-          <span class="email-line1">
-            <span class="email-subject">{{ email.subject }}</span>
-            <span class="email-meta">{{ email.fromDisplayName || email.fromAddress }}</span>
-            @if (email.dueDate) {
-              <span class="email-due">due {{ email.dueDate }}</span>
-            }
-          </span>
-          <span class="email-line2">
-            <span class="email-summary">{{ email.summary }}</span>
-            <span class="email-meta">{{ email.dateSent | date: 'medium' }}</span>
-          </span>
-        </a>
-        <div class="email-actions">
-          @if (recoveryMode) {
-            <button
-              type="button"
-              class="button-quiet"
-              [disabled]="busyId === email.id"
-              (click)="unhide(email, $event)">
-              Unhide
-            </button>
-          } @else {
-            <button
-              type="button"
-              class="button-quiet"
-              [disabled]="busyId === email.id"
-              (click)="hide(email, $event)">
-              Hide
-            </button>
-          }
-          <select
-            class="category-select"
-            [disabled]="busyId === email.id"
-            (change)="reassign(email, $event)"
-            [attr.aria-label]="'Category for ' + (email.subject || 'email')">
-            @if (!email.category) {
-              <option value="" disabled selected>Unclassified</option>
-            }
-            @for (category of categories; track category) {
-              <option [value]="category" [selected]="email.category === category">{{ label(category) }}</option>
-            }
-          </select>
-        </div>
-      </li>
+  @for (group of groups(); track $index) {
+    @if ($index > 0) {
+      <hr class="email-group-split" />
     }
-  </ul>
+    @if (group.label) {
+      <p class="email-group-label">{{ group.label }}</p>
+    }
+    <ul class="email-list">
+      @for (email of group.emails; track email.id) {
+        <li class="email-item" [class.email-item-expired]="expired(email)">
+          <a
+            class="email-row"
+            [href]="email.gmailUrl || '/email/' + email.id"
+            [attr.target]="email.gmailUrl ? '_blank' : null"
+            [attr.rel]="email.gmailUrl ? 'noopener noreferrer' : null"
+            (click)="openRow(email, $event)">
+            <span class="email-line1">
+              <span class="email-subject">{{ email.subject }}</span>
+              <span class="email-meta">{{ email.fromDisplayName || email.fromAddress }}</span>
+              @if (email.dueDate) {
+                <span class="email-due" [class.email-due-expired]="expired(email)">
+                  {{ expired(email) ? 'expired' : 'due' }} {{ email.dueDate }}
+                </span>
+              }
+            </span>
+            <span class="email-line2">
+              <span class="email-summary">{{ email.summary }}</span>
+              <span class="email-meta">{{ email.dateSent | date: 'medium' }}</span>
+            </span>
+          </a>
+          <div class="email-actions">
+            @if (recoveryMode) {
+              <button
+                type="button"
+                class="button-quiet"
+                [disabled]="busyId === email.id"
+                (click)="unhide(email, $event)">
+                Unhide
+              </button>
+            } @else {
+              <button
+                type="button"
+                class="button-quiet"
+                [disabled]="busyId === email.id"
+                (click)="hide(email, $event)">
+                Hide
+              </button>
+            }
+            <select
+              class="category-select"
+              [disabled]="busyId === email.id"
+              (change)="reassign(email, $event)"
+              [attr.aria-label]="'Category for ' + (email.subject || 'email')">
+              @if (!email.category) {
+                <option value="" disabled selected>Unclassified</option>
+              }
+              @for (category of categories; track category) {
+                <option [value]="category" [selected]="email.category === category">{{ label(category) }}</option>
+              }
+            </select>
+          </div>
+        </li>
+      }
+    </ul>
+  }
 }

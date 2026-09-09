@@ -1,0 +1,102 @@
+@if (model(); as chart) {
+  @if (chart.points.length) {
+    <div class="dual-axis-chart">
+      <svg
+        class="dual-axis-svg"
+        [attr.viewBox]="'0 0 ' + chart.width + ' ' + chart.height"
+        role="img"
+        [attr.aria-label]="'Importance versus urgency for ' + chart.points.length + ' emails'">
+        <rect
+          class="chart-plot"
+          [attr.x]="chart.plot.x"
+          [attr.y]="chart.plot.y"
+          [attr.width]="chart.plot.w"
+          [attr.height]="chart.plot.h" />
+        @if (chart.urgencyBand) {
+          <rect
+            class="chart-band chart-band-urgency"
+            [attr.x]="chart.urgencyBand.x"
+            [attr.y]="chart.urgencyBand.y"
+            [attr.width]="chart.urgencyBand.w"
+            [attr.height]="chart.urgencyBand.h"
+            [attr.fill]="chart.urgencyFill" />
+        }
+        @if (chart.importanceBand) {
+          <rect
+            class="chart-band chart-band-importance"
+            [attr.x]="chart.importanceBand.x"
+            [attr.y]="chart.importanceBand.y"
+            [attr.width]="chart.importanceBand.w"
+            [attr.height]="chart.importanceBand.h"
+            [attr.fill]="chart.importanceFill" />
+        }
+        @if (chart.bothBand) {
+          <rect
+            class="chart-band chart-band-both"
+            [attr.x]="chart.bothBand.x"
+            [attr.y]="chart.bothBand.y"
+            [attr.width]="chart.bothBand.w"
+            [attr.height]="chart.bothBand.h"
+            [attr.fill]="chart.bothFill" />
+        }
+        @if (chart.urgencyCutoffX != null) {
+          <line
+            class="chart-cutoff"
+            [attr.x1]="chart.urgencyCutoffX"
+            [attr.x2]="chart.urgencyCutoffX"
+            [attr.y1]="chart.plot.y"
+            [attr.y2]="chart.plot.y + chart.plot.h" />
+        }
+        @if (chart.importanceCutoffY != null) {
+          <line
+            class="chart-cutoff"
+            [attr.x1]="chart.plot.x"
+            [attr.x2]="chart.plot.x + chart.plot.w"
+            [attr.y1]="chart.importanceCutoffY"
+            [attr.y2]="chart.importanceCutoffY" />
+        }
+        <text
+          class="chart-axis-label"
+          [attr.x]="chart.plot.x + chart.plot.w / 2"
+          [attr.y]="chart.height - 10"
+          text-anchor="middle">
+          Urgency →
+        </text>
+        <text
+          class="chart-axis-label"
+          [attr.x]="16"
+          [attr.y]="chart.plot.y + chart.plot.h / 2"
+          text-anchor="middle"
+          [attr.transform]="'rotate(-90 16 ' + (chart.plot.y + chart.plot.h / 2) + ')'">
+          Importance →
+        </text>
+        @for (point of chart.points; track point.email.id) {
+          <a
+            class="chart-point-link"
+            [attr.href]="point.email.gmailUrl || '/email/' + point.email.id"
+            [attr.target]="point.email.gmailUrl ? '_blank' : null"
+            [attr.rel]="point.email.gmailUrl ? 'noopener noreferrer' : null"
+            (click)="openPoint(point.email, $event)">
+            <circle class="chart-point" [attr.cx]="point.x" [attr.cy]="point.y" r="5.5">
+              <title>{{ point.email.subject || 'Email' }}</title>
+            </circle>
+          </a>
+        }
+      </svg>
+      <ul class="chart-legend">
+        <li>
+          <span class="chart-swatch" [style.background]="chart.urgencyFill"></span>
+          Urgency list
+        </li>
+        <li>
+          <span class="chart-swatch" [style.background]="chart.importanceFill"></span>
+          Importance list
+        </li>
+        <li>
+          <span class="chart-swatch" [style.background]="chart.bothFill"></span>
+          Both
+        </li>
+      </ul>
+    </div>
+  }
+}

@@ -105,6 +105,80 @@ h3 {
   gap: 16px;
 }
 
+.dual-axis-chart {
+  margin: 0 0 16px;
+}
+
+.dual-axis-svg {
+  display: block;
+  width: 100%;
+  max-width: 640px;
+  height: auto;
+}
+
+.chart-plot {
+  fill: #141414;
+  stroke: var(--border);
+}
+
+.chart-band {
+  fill-opacity: 0.48;
+  stroke: none;
+}
+
+.chart-band-both {
+  fill-opacity: 0.62;
+}
+
+.chart-cutoff {
+  stroke: var(--fg);
+  stroke-opacity: 0.35;
+  stroke-dasharray: 4 3;
+  stroke-width: 1;
+}
+
+.chart-axis-label {
+  fill: var(--muted);
+  font-size: 12px;
+}
+
+.chart-point {
+  fill: var(--fg);
+  stroke: var(--bg);
+  stroke-width: 1.5;
+}
+
+.chart-point-link:hover .chart-point {
+  fill: #fff;
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+
+.chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 18px;
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.chart-legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.chart-swatch {
+  width: 14px;
+  height: 14px;
+  border-radius: 2px;
+  opacity: 0.85;
+  border: 1px solid var(--border);
+}
+
 .email-list {
   list-style: none;
   padding: 0;
@@ -213,6 +287,25 @@ h3 {
   color: var(--accent);
   font-size: 0.85rem;
   flex-shrink: 0;
+}
+
+.email-due-expired {
+  color: var(--error);
+}
+
+.email-group-label {
+  margin: 0 0 8px;
+  color: var(--error);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.email-group-split {
+  border: 0;
+  border-top: 1px dashed var(--muted);
+  margin: 18px 0 16px;
 }
 
 .pill {

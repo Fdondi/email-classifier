@@ -69,6 +69,7 @@
     @if (hasDual(digest.events)) {
       <section class="block">
         <h2>Events</h2>
+        <app-dual-axis-chart [section]="digest.events" />
         <div class="split">
           <div>
             <h3>By urgency</h3>
@@ -87,6 +88,7 @@
     @if (hasDual(digest.jobOffers)) {
       <section class="block">
         <h2>Job offers</h2>
+        <app-dual-axis-chart [section]="digest.jobOffers" />
         <div class="split">
           <div>
             <h3>By urgency</h3>

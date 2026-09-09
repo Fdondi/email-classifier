@@ -1,6 +1,7 @@
 import { Component, ElementRef, OnDestroy, OnInit, ViewChild } from '@angular/core';
 import { Subscription, switchMap, timer } from 'rxjs';
 import { AppNavComponent } from '../../components/app-nav/app-nav.component';
+import { DualAxisChartComponent } from '../../components/dual-axis-chart/dual-axis-chart.component';
 import { EmailListComponent } from '../../components/email-list/email-list.component';
 import { BUILD_VERSION } from '../../build-version';
 import {
@@ -19,7 +20,7 @@ import { ApiService, describeHttpError } from '../../services/api.service';
 @Component({
   selector: 'app-digest',
   standalone: true,
-  imports: [EmailListComponent, AppNavComponent],
+  imports: [EmailListComponent, AppNavComponent, DualAxisChartComponent],
   templateUrl: './digest.component.html'
 })
 export class DigestComponent implements OnInit, OnDestroy {
@@ -165,7 +166,7 @@ export class DigestComponent implements OnInit, OnDestroy {
   }
 
   hasDual(section: DualAxisSection): boolean {
-    return section.byUrgency.length > 0 || section.byImportance.length > 0;
+    return section.byUrgency.length > 0 || section.byImportance.length > 0 || (section.allEmails?.length ?? 0) > 0;
   }
 
   hasSummarized(section: SummarizedSection, category: Category): boolean {
