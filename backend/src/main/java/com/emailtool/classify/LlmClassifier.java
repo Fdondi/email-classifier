@@ -144,7 +144,29 @@ public class LlmClassifier {
         }
     }
 
+    /**
+     * One chat turn constrained by {@code responseFormat} (an OpenAI-style {@code response_format},
+     * or null). Returns the raw message text; empty when the model is not ready or the call fails.
+     */
+    public Optional<String> completeJson(
+            String system, String user, double temperature, Map<String, Object> responseFormat) {
+        if (!llmRuntime.ensureReady()) {
+            log.warn("Skipping LLM call: {}", llmRuntime.lastError());
+            return Optional.empty();
+        }
+        try {
+            return Optional.of(chat(system, user, temperature, responseFormat));
+        } catch (RestClientException e) {
+            log.warn("LLM call failed: {}", e.getMessage());
+            return Optional.empty();
+        }
+    }
+
     private String chat(String system, String user, double temperature, boolean classifierJson) {
+        return chat(system, user, temperature, classifierJson ? classifierResponseFormat() : null);
+    }
+
+    private String chat(String system, String user, double temperature, Map<String, Object> responseFormat) {
         Map<String, Object> body = new HashMap<>();
         String model = properties.getLlm().getModel();
         if (model != null && !model.isBlank()) {
@@ -152,8 +174,8 @@ public class LlmClassifier {
         }
         body.put("temperature", temperature);
         body.put("stream", false);
-        if (classifierJson) {
-            body.put("response_format", classifierResponseFormat());
+        if (responseFormat != null) {
+            body.put("response_format", responseFormat);
         }
         body.put(
                 "messages",

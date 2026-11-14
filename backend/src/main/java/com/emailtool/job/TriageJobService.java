@@ -8,6 +8,7 @@ import com.emailtool.config.AppProperties;
 import com.emailtool.domain.ClassificationSource;
 import com.emailtool.domain.Email;
 import com.emailtool.ingest.IngestService;
+import com.emailtool.jobs.JobCandidateService;
 import com.emailtool.llm.LlmRuntime;
 import com.emailtool.persist.EmailRepository;
 import com.emailtool.rank.RankingService;
@@ -16,8 +17,11 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -33,6 +37,7 @@ public class TriageJobService {
     public static final String PHASE_DOWNLOADING = "DOWNLOADING";
     public static final String PHASE_CLASSIFYING = "CLASSIFYING";
     public static final String PHASE_RANKING = "RANKING";
+    public static final String PHASE_JOBS = "JOBS";
     public static final String PHASE_DONE = "DONE";
     public static final String PHASE_FAILED = "FAILED";
 
@@ -46,6 +51,7 @@ public class TriageJobService {
     private final RequeueStaleClassifications requeueStaleClassifications;
     private final TriageRunRecorder triageRunRecorder;
     private final AppProperties properties;
+    private final JobCandidateService jobCandidateService;
 
     private final AtomicBoolean running = new AtomicBoolean(false);
     private final LiveProgress live = new LiveProgress();
@@ -61,7 +67,9 @@ public class TriageJobService {
             LlmRuntime llmRuntime,
             RequeueStaleClassifications requeueStaleClassifications,
             TriageRunRecorder triageRunRecorder,
-            AppProperties properties) {
+            AppProperties properties,
+            JobCandidateService jobCandidateService) {
+        this.jobCandidateService = jobCandidateService;
         this.ingestService = ingestService;
         this.ruleEngine = ruleEngine;
         this.llmClassifier = llmClassifier;
@@ -135,20 +143,29 @@ public class TriageJobService {
         int fallback = 0;
         int requeued = 0;
         boolean llmReady = false;
+        AtomicReference<Instant> loadingStartedAt = new AtomicReference<>();
+        AtomicReference<Instant> loadingEndedAt = new AtomicReference<>();
+        Instant downloadingStartedAt = null;
+        Instant downloadingEndedAt = null;
+        List<Long> emailProcessingMs = new ArrayList<>();
         TriageJobResult result;
         try {
+            // Mail download and GPU load are independent; overlap them so triage waits only
+            // for the slower of the two before classification.
             live.setPhase(PHASE_STARTING_LLM);
-            llmReady = llmRuntime.ensureReady();
-            if (!llmReady) {
-                String reason = llmRuntime.lastError() == null
-                        ? "Chat model is not loaded"
-                        : llmRuntime.lastError();
-                errors.add(reason);
-                live.setErrors(errors);
-                log.warn("Skipping LLM: {}", reason);
-            }
+            CompletableFuture<Boolean> llmFuture = CompletableFuture.supplyAsync(
+                    () -> {
+                        loadingStartedAt.set(Instant.now());
+                        try {
+                            return llmRuntime.ensureReady();
+                        } finally {
+                            loadingEndedAt.set(Instant.now());
+                        }
+                    },
+                    task -> Thread.ofVirtual().name("triage-llm-load").start(task));
             try {
                 live.setPhase(PHASE_DOWNLOADING);
+                downloadingStartedAt = Instant.now();
                 ingestStats = ingestService.ingest((ingested, skipped, failed) ->
                         live.setIngest(ingested, skipped, failed));
                 live.setIngest(ingestStats.ingested(), ingestStats.skipped(), ingestStats.failed());
@@ -156,6 +173,31 @@ public class TriageJobService {
                 errors.add(e.getMessage());
                 live.setErrors(errors);
                 log.warn("Mail ingest failed: {}", e.getMessage());
+            } finally {
+                downloadingEndedAt = Instant.now();
+            }
+            try {
+                if (!llmFuture.isDone()) {
+                    live.setPhase(PHASE_STARTING_LLM);
+                }
+                llmReady = llmFuture.join();
+                if (!llmReady) {
+                    String reason = llmRuntime.lastError() == null
+                            ? "Chat model is not loaded"
+                            : llmRuntime.lastError();
+                    errors.add(reason);
+                    live.setErrors(errors);
+                    log.warn("Skipping LLM: {}", reason);
+                }
+            } catch (CompletionException e) {
+                Throwable cause = e.getCause() == null ? e : e.getCause();
+                String reason = cause.getMessage() == null
+                        ? cause.getClass().getSimpleName()
+                        : cause.getMessage();
+                errors.add(reason);
+                live.setErrors(errors);
+                log.warn("Skipping LLM: {}", reason);
+                llmReady = false;
             }
             requeued = requeueStaleClassifications.requeue();
             if (requeued > 0) {
@@ -177,6 +219,7 @@ public class TriageJobService {
                 if (!email.isDigestVisible()) {
                     continue;
                 }
+                long emailStartedNanos = System.nanoTime();
                 try {
                     if (ruleEngine.classify(email)) {
                         stampVersions(email);
@@ -212,6 +255,8 @@ public class TriageJobService {
                     live.setClassified(byRule, byLlm, fallback);
                     live.setErrors(collapsedErrors(runErrors, classificationErrors, llmAttempts));
                     log.warn("Classification failed for {}: {}", email.getId(), e.getMessage());
+                } finally {
+                    emailProcessingMs.add((System.nanoTime() - emailStartedNanos) / 1_000_000L);
                 }
             }
             errors.clear();
@@ -219,6 +264,17 @@ public class TriageJobService {
             live.setErrors(errors);
             live.setPhase(PHASE_RANKING);
             rankingService.rankAll();
+            if (jobCandidateService.isEnabled()) {
+                // While the model is still loaded: read job mail for postings, propose the best to letter-writer.
+                live.setPhase(PHASE_JOBS);
+                try {
+                    errors.addAll(jobCandidateService.run(llmReady, Instant.now()).errors());
+                } catch (RuntimeException e) {
+                    errors.add("Job candidates: " + (e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage()));
+                    log.warn("Job candidates failed: {}", e.getMessage());
+                }
+                live.setErrors(errors);
+            }
             result = new TriageJobResult(
                     ingestStats.ingested(),
                     ingestStats.skipped(),
@@ -243,9 +299,66 @@ public class TriageJobService {
         } finally {
             llmRuntime.releaseIfOwned();
         }
+        logRunTiming(
+                loadingStartedAt.get(),
+                loadingEndedAt.get(),
+                downloadingStartedAt,
+                downloadingEndedAt,
+                emailProcessingMs);
         lastError = result.errors().isEmpty() ? null : String.join("; ", result.errors());
         triageRunRecorder.record(source, started, Instant.now(), llmReady, requeued, result);
         return result;
+    }
+
+    private static void logRunTiming(
+            Instant loadingStartedAt,
+            Instant loadingEndedAt,
+            Instant downloadingStartedAt,
+            Instant downloadingEndedAt,
+            List<Long> emailProcessingMs) {
+        log.info(
+                "Loading started at {}, ended at {}",
+                loadingStartedAt == null ? "n/a" : loadingStartedAt,
+                loadingEndedAt == null ? "n/a" : loadingEndedAt);
+        log.info(
+                "Downloading started at {}, ended at {}",
+                downloadingStartedAt == null ? "n/a" : downloadingStartedAt,
+                downloadingEndedAt == null ? "n/a" : downloadingEndedAt);
+        if (emailProcessingMs.isEmpty()) {
+            log.info("Email processing: no emails classified");
+            return;
+        }
+        long averageMs = averageMs(emailProcessingMs);
+        long p90Ms = percentileMs(emailProcessingMs, 0.90);
+        log.info(
+                "Email processing average {} ms, 90th percentile slowest {} ms (n={})",
+                averageMs,
+                p90Ms,
+                emailProcessingMs.size());
+    }
+
+    static long averageMs(List<Long> samplesMs) {
+        if (samplesMs.isEmpty()) {
+            return 0L;
+        }
+        long sum = 0L;
+        for (long sample : samplesMs) {
+            sum += sample;
+        }
+        return Math.round(sum / (double) samplesMs.size());
+    }
+
+    /** Nearest-rank percentile over millisecond samples (p in (0, 1]). */
+    static long percentileMs(List<Long> samplesMs, double percentile) {
+        if (samplesMs.isEmpty()) {
+            return 0L;
+        }
+        if (percentile <= 0 || percentile > 1) {
+            throw new IllegalArgumentException("percentile must be in (0, 1], got " + percentile);
+        }
+        long[] sorted = samplesMs.stream().mapToLong(Long::longValue).sorted().toArray();
+        int rank = (int) Math.ceil(percentile * sorted.length) - 1;
+        return sorted[Math.max(0, Math.min(rank, sorted.length - 1))];
     }
 
     private void applyLlm(Email email, ClassifierJson json, boolean fallback) {

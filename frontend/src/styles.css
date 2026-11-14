@@ -161,6 +161,89 @@ h3 {
   opacity: 0.6;
 }
 
+.chart-point-clicked {
+  opacity: 0.5;
+}
+
+.chart-bundle {
+  cursor: pointer;
+  fill: #141414;
+  stroke: var(--fg);
+  stroke-width: 1.5;
+}
+
+.chart-bundle-count {
+  fill: var(--fg);
+  font-size: 10px;
+  font-weight: 600;
+  pointer-events: none;
+}
+
+.bundle-panel {
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  max-width: 640px;
+}
+
+.bundle-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.bundle-close {
+  background: none;
+  border: 0;
+  color: var(--muted);
+  font-size: 1.2rem;
+  cursor: pointer;
+}
+
+.bundle-section-title {
+  margin: 10px 0 4px;
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.bundle-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.bundle-list-clicked {
+  opacity: 0.55;
+}
+
+.bundle-item {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  padding: 6px 4px;
+  background: none;
+  border: 0;
+  border-top: 1px solid var(--border);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.bundle-subject {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bundle-from {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
 .dual-axis-svg-dragging {
   cursor: grabbing;
 }

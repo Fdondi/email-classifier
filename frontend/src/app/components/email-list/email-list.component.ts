@@ -1,5 +1,5 @@
 import { DatePipe, NgTemplateOutlet } from '@angular/common';
-import { Component, EventEmitter, HostListener, Input, OnChanges, Output } from '@angular/core';
+import { ChangeDetectionStrategy, Component, EventEmitter, HostListener, Input, OnChanges, Output } from '@angular/core';
 import { Router } from '@angular/router';
 import {
   CATEGORIES,
@@ -28,6 +28,7 @@ function loadExpiredSectionOpen(): boolean {
 let expiredSectionOpen = loadExpiredSectionOpen();
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-email-list',
   standalone: true,
   imports: [DatePipe, NgTemplateOutlet],

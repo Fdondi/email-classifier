@@ -11,6 +11,10 @@
       <input type="checkbox" [checked]="includeRead" (change)="setIncludeRead($any($event.target).checked)" />
       Include read
     </label>
+    <label class="include-read">
+      Since
+      <input type="datetime-local" [value]="since" (change)="setSince($any($event.target).value)" />
+    </label>
     <button type="button" class="button" (click)="runTriage()" [disabled]="running">
       {{ running ? 'Running…' : 'Run triage' }}
     </button>

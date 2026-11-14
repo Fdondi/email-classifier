@@ -1,10 +1,11 @@
 import { DatePipe } from '@angular/common';
-import { Component, OnInit } from '@angular/core';
+import { ChangeDetectionStrategy, Component, OnInit } from '@angular/core';
 import { AppNavComponent } from '../../components/app-nav/app-nav.component';
 import { TriageRun } from '../../models/email.model';
 import { ApiService, describeHttpError } from '../../services/api.service';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-runs',
   standalone: true,
   imports: [AppNavComponent, DatePipe],

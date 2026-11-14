@@ -18,6 +18,7 @@
 		<jsoup.version>1.21.2</jsoup.version>
 		<owasp-sanitizer.version>20240325.1</owasp-sanitizer.version>
 		<lingua.version>1.2.2</lingua.version>
+		<google-cloud-firestore.version>3.43.0</google-cloud-firestore.version>
 	</properties>
 	<dependencies>
 		<dependency>
@@ -65,6 +66,12 @@
 			<version>${lingua.version}</version>
 		</dependency>
 		<dependency>
+			<!-- letter-writer's `opportunities` queue (job candidates) and the CV in `personal_data`. -->
+			<groupId>com.google.cloud</groupId>
+			<artifactId>google-cloud-firestore</artifactId>
+			<version>${google-cloud-firestore.version}</version>
+		</dependency>
+		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-test</artifactId>
 			<scope>test</scope>
@@ -77,6 +84,17 @@
 		</dependency>
 	</dependencies>
 	<build>
+		<resources>
+			<resource>
+				<directory>src/main/resources</directory>
+			</resource>
+			<resource>
+				<!-- The Angular UI (run `ng build` in frontend/ first), so the jar serves it at / and the tray icon can open it.
+				     A missing directory is skipped, so the build still works without a UI build. -->
+				<directory>${project.basedir}/../frontend/dist/frontend/browser</directory>
+				<targetPath>static</targetPath>
+			</resource>
+		</resources>
 		<plugins>
 			<plugin>
 				<groupId>org.codehaus.mojo</groupId>
@@ -103,7 +121,7 @@
 				<groupId>org.springframework.boot</groupId>
 				<artifactId>spring-boot-maven-plugin</artifactId>
 				<configuration>
-					<!-- Default fork=true starts a second java.exe. Ctrl+C often kills only Maven and leaves 8080 bound. -->
+					<!-- Default fork=true starts a second java.exe. Ctrl+C often kills only Maven and leaves 17432 bound. -->
 					<fork>false</fork>
 				</configuration>
 			</plugin>

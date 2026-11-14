@@ -1,4 +1,4 @@
-import { Component, ElementRef, OnDestroy, OnInit, ViewChild } from '@angular/core';
+import { ChangeDetectionStrategy, Component, ElementRef, OnDestroy, OnInit, ViewChild } from '@angular/core';
 import { Subscription, switchMap, timer } from 'rxjs';
 import { AppNavComponent } from '../../components/app-nav/app-nav.component';
 import { DualAxisChartComponent } from '../../components/dual-axis-chart/dual-axis-chart.component';
@@ -17,7 +17,14 @@ import {
 } from '../../models/email.model';
 import { ApiService, describeHttpError } from '../../services/api.service';
 
+// Browser-local YYYY-MM-DDTHH:mm, the format <input type="datetime-local"> uses.
+function localDateTime(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-digest',
   standalone: true,
   imports: [EmailListComponent, AppNavComponent, DualAxisChartComponent],
@@ -32,6 +39,8 @@ export class DigestComponent implements OnInit, OnDestroy {
   error: string | null = null;
   running = false;
   includeRead = false;
+  // Default window is the last 24 hours; the picker shows the start of that window.
+  since = localDateTime(new Date(Date.now() - 24 * 60 * 60 * 1000));
   job: TriageProgress | null = null;
   extra: Partial<Record<Category, EmailSummary[]>> = {};
 
@@ -49,7 +58,7 @@ export class DigestComponent implements OnInit, OnDestroy {
 
   reload(): void {
     this.extra = {};
-    this.api.digest(this.includeRead).subscribe({
+    this.api.digest(this.includeRead, this.sinceIso()).subscribe({
       next: (digest) => {
         this.digest = withoutFixtureDigest(digest);
       },
@@ -70,6 +79,18 @@ export class DigestComponent implements OnInit, OnDestroy {
   setIncludeRead(includeRead: boolean): void {
     this.includeRead = includeRead;
     this.reload();
+  }
+
+  setSince(since: string): void {
+    if (!since) {
+      return;
+    }
+    this.since = since;
+    this.reload();
+  }
+
+  private sinceIso(): string {
+    return new Date(this.since).toISOString();
   }
 
   runTriage(): void {
@@ -98,7 +119,7 @@ export class DigestComponent implements OnInit, OnDestroy {
     if (j.phase === 'DOWNLOADING' || j.ingested + j.skipped + j.ingestFailed > 0) {
       parts.push(`downloaded ${j.ingested}, skipped ${j.skipped}` + (j.ingestFailed ? `, failed ${j.ingestFailed}` : ''));
     }
-    if (j.phase === 'CLASSIFYING' || j.phase === 'RANKING' || j.phase === 'DONE' || j.phase === 'FAILED' || classified > 0) {
+    if (j.phase === 'CLASSIFYING' || j.phase === 'RANKING' || j.phase === 'JOBS' || j.phase === 'DONE' || j.phase === 'FAILED' || classified > 0) {
       const ofTotal = j.toClassify > 0 ? ` / ${j.toClassify}` : '';
       parts.push(`classified ${classified}${ofTotal} (rules ${j.classifiedByRule}, LLM ${j.classifiedByLlm}, fallback ${j.fallback})`);
     }
@@ -117,6 +138,8 @@ export class DigestComponent implements OnInit, OnDestroy {
         return 'Classifying…';
       case 'RANKING':
         return 'Ranking…';
+      case 'JOBS':
+        return 'Picking job candidates…';
       case 'DONE':
         return 'Done';
       case 'FAILED':
@@ -153,7 +176,7 @@ export class DigestComponent implements OnInit, OnDestroy {
   }
 
   showMore(category: Category, already: number): void {
-    this.api.categoryPage(category, already, 5, this.includeRead).subscribe({
+    this.api.categoryPage(category, already, 5, this.includeRead, this.sinceIso()).subscribe({
       next: (page) => {
         const current = this.extra[category] ?? [];
         this.extra = { ...this.extra, [category]: [...current, ...withoutFixtures(page.items)] };

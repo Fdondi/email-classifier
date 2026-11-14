@@ -110,6 +110,7 @@ export type TriagePhase =
   | 'DOWNLOADING'
   | 'CLASSIFYING'
   | 'RANKING'
+  | 'JOBS'
   | 'DONE'
   | 'FAILED';
 

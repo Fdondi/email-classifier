@@ -2,7 +2,7 @@
 # Fails out loud if the LLM never becomes ready or nothing is classified.
 
 param(
-    [string]$BackendUrl = "http://127.0.0.1:8080",
+    [string]$BackendUrl = "http://127.0.0.1:17432",
     [string]$LlmOrigin = "http://127.0.0.1:1234",
     [int]$PollSeconds = 10,
     [int]$MaxWaitMinutes = 90,

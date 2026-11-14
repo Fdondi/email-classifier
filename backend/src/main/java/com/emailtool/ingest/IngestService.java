@@ -15,6 +15,8 @@ import java.time.Instant;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.function.Consumer;
+import java.util.function.Supplier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -58,8 +60,40 @@ public class IngestService {
         return ingest(null);
     }
 
+    /**
+     * Runs {@code action}; on a RuntimeException waits {@code waits[i]} and tries again, up to
+     * {@code waits.size()} retries. The last failure is rethrown.
+     */
+    static <T> T retrying(Supplier<T> action, List<Duration> waits, Consumer<Duration> sleeper) {
+        for (int attempt = 1; ; attempt++) {
+            try {
+                return action.get();
+            } catch (RuntimeException e) {
+                if (attempt > waits.size()) {
+                    throw e;
+                }
+                Duration wait = waits.get(attempt - 1);
+                log.warn("Mail download attempt {} failed, retrying in {} s: {}", attempt, wait.toSeconds(), e.getMessage());
+                sleeper.accept(wait);
+            }
+        }
+    }
+
+    private static void sleep(Duration wait) {
+        try {
+            Thread.sleep(wait);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Interrupted while waiting to retry the mail download", e);
+        }
+    }
+
+    /** Waits before each retry of a failed mail download: 3 retries, about 2 minutes in total. */
+    static final List<Duration> POLL_RETRY_WAITS =
+            List.of(Duration.ofSeconds(10), Duration.ofSeconds(30), Duration.ofSeconds(90));
+
     public IngestStats ingest(IngestProgressListener progress) {
-        PollResult polled = mailSource.poll();
+        PollResult polled = retrying(mailSource::poll, POLL_RETRY_WAITS, IngestService::sleep);
         transactionTemplate.executeWithoutResult(status -> applyMailboxState(polled.visibility()));
         int ingested = 0;
         int skipped = 0;

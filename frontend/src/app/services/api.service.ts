@@ -16,9 +16,9 @@ import {
 export class ApiService {
   constructor(private readonly http: HttpClient) {}
 
-  digest(includeRead = false): Observable<Digest> {
+  digest(includeRead: boolean, since: string): Observable<Digest> {
     return this.http.get<Digest>('/api/digest', {
-      params: { includeRead: String(includeRead) }
+      params: { includeRead: String(includeRead), since }
     });
   }
 
@@ -26,9 +26,9 @@ export class ApiService {
     return this.http.get<SystemStatus>('/api/status');
   }
 
-  categoryPage(category: Category, offset: number, limit = 5, includeRead = false): Observable<CategoryPage> {
+  categoryPage(category: Category, offset: number, limit: number, includeRead: boolean, since: string): Observable<CategoryPage> {
     return this.http.get<CategoryPage>(`/api/digest/category/${category}`, {
-      params: { offset, limit, includeRead: String(includeRead) }
+      params: { offset, limit, includeRead: String(includeRead), since }
     });
   }
 

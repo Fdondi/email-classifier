@@ -1,4 +1,4 @@
-# Free 8080 if our leftover JVM is still bound, then start the backend in this console.
+# Free 17432 if our leftover JVM is still bound, then start the backend in this console.
 
 $ErrorActionPreference = "Stop"
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path

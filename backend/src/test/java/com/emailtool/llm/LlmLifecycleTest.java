@@ -28,6 +28,7 @@ class LlmLifecycleTest {
     private MockWebServer server;
     private Path cli;
     private final AtomicBoolean chatLoaded = new AtomicBoolean(false);
+    private long freeRamMib = 40_000;
 
     @BeforeEach
     void start() throws Exception {
@@ -74,11 +75,11 @@ class LlmLifecycleTest {
     void doesNotTreatInstalledButUnloadedModelsAsReady() {
         chatLoaded.set(false);
         RecordingRunner runner = new RecordingRunner(command -> {
-            if (command.get(0).equals("nvidia-smi") && command.get(1).contains("memory.used")) {
-                return new CommandRunner.Result(0, "20000, 24576, 4000");
+            if (command.contains("load")) {
+                return new CommandRunner.Result(1, "boom");
             }
-            if (command.get(0).equals("nvidia-smi")) {
-                return new CommandRunner.Result(0, "99, chrome.exe, 18000 MiB");
+            if (command.get(0).equals("nvidia-smi") && command.get(1).contains("memory.used")) {
+                return new CommandRunner.Result(0, "400, 24576, 24000");
             }
             if (command.contains("ps")) {
                 return new CommandRunner.Result(0, "[]");
@@ -87,13 +88,34 @@ class LlmLifecycleTest {
         });
         LlmLifecycle lifecycle = lifecycle(runner);
         assertFalse(lifecycle.ensureReady());
-        assertTrue(lifecycle.lastError().contains("chrome.exe"));
+        assertTrue(lifecycle.lastError().contains("lms load failed"));
+    }
+
+    @Test
+    void doesNotLoadWhenGpuIsBusyAndRamIsShort() {
+        freeRamMib = 17_000;
+        RecordingRunner runner = new RecordingRunner(command -> {
+            if (command.get(0).equals("nvidia-smi") && command.get(1).contains("memory.used")) {
+                return new CommandRunner.Result(0, "17000, 24576, 7300");
+            }
+            if (command.contains("ps")) {
+                return new CommandRunner.Result(0, "[]");
+            }
+            return new CommandRunner.Result(0, "");
+        });
+        LlmLifecycle lifecycle = lifecycle(runner);
+        assertFalse(lifecycle.ensureReady());
+        assertTrue(lifecycle.lastError().contains("17000 MiB RAM free"), lifecycle.lastError());
         assertFalse(runner.seen.stream().anyMatch(command -> command.contains("load")));
     }
 
     @Test
-    void doesNotLoadWhenGpuIsBusy() throws Exception {
+    void loadsOnCpuWhenGpuIsBusy() {
         RecordingRunner runner = new RecordingRunner(command -> {
+            if (command.contains("load")) {
+                chatLoaded.set(true);
+                return new CommandRunner.Result(0, "loaded");
+            }
             if (command.get(0).equals("nvidia-smi") && command.get(1).contains("memory.used")) {
                 return new CommandRunner.Result(0, "20000, 24576, 4000");
             }
@@ -103,12 +125,19 @@ class LlmLifecycleTest {
             if (command.contains("ps")) {
                 return new CommandRunner.Result(0, "[]");
             }
-            return new CommandRunner.Result(0, "");
+            return new CommandRunner.Result(0, "unloaded");
         });
         LlmLifecycle lifecycle = lifecycle(runner);
-        assertFalse(lifecycle.ensureReady());
-        assertTrue(lifecycle.lastError().contains("chrome.exe"));
-        assertFalse(runner.seen.stream().anyMatch(command -> command.contains("load")));
+        assertTrue(lifecycle.ensureReady());
+        List<String> load = runner.seen.stream().filter(c -> c.contains("load")).findFirst().orElseThrow();
+        assertEquals("off", load.get(load.indexOf("--gpu") + 1));
+
+        int beforeRelease = runner.seen.size();
+        lifecycle.releaseIfOwned();
+        List<List<String>> afterRelease = runner.seen.subList(beforeRelease, runner.seen.size());
+        assertEquals("gemma-4-26b-a4b-it", unloadKey(runner));
+        // The busy GPU never frees up, so polling it would only stall the run for a minute.
+        assertFalse(afterRelease.stream().anyMatch(c -> c.get(0).equals("nvidia-smi")));
     }
 
     @Test
@@ -131,7 +160,8 @@ class LlmLifecycleTest {
         });
         LlmLifecycle lifecycle = lifecycle(runner);
         assertTrue(lifecycle.ensureReady());
-        assertTrue(runner.seen.stream().anyMatch(command -> command.contains("load")));
+        List<String> load = runner.seen.stream().filter(c -> c.contains("load")).findFirst().orElseThrow();
+        assertEquals("max", load.get(load.indexOf("--gpu") + 1));
         lifecycle.releaseIfOwned();
         assertTrue(runner.seen.stream().anyMatch(command -> command.contains("unload")));
         assertEquals("gemma-4-26b-a4b-it", unloadKey(runner));
@@ -152,13 +182,14 @@ class LlmLifecycleTest {
         properties.getLlm().setModelKey("gemma-4-26b-a4b-it");
         properties.getLlm().setLoadTimeoutSeconds(5);
         properties.getLlm().setMinFreeVramMib(18000);
+        properties.getLlm().setMinFreeRamMib(22000);
         JdkClientHttpRequestFactory factory = new JdkClientHttpRequestFactory();
         factory.setReadTimeout(Duration.ofSeconds(3));
         RestClient client = RestClient.builder()
                 .baseUrl(properties.getLlm().getBaseUrl())
                 .requestFactory(factory)
                 .build();
-        return new LlmLifecycle(properties, runner, new ObjectMapper(), client);
+        return new LlmLifecycle(properties, runner, new ObjectMapper(), client, () -> freeRamMib);
     }
 
     private static final class RecordingRunner implements CommandRunner {

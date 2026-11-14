@@ -73,16 +73,31 @@
           Importance →
         </text>
         @for (point of chart.points; track point.email.id) {
-          <circle
-            class="chart-point"
-            [class.chart-point-dragging]="draggingId() === point.email.id"
-            [class.chart-point-saving]="savingId === point.email.id"
-            [attr.cx]="point.x"
-            [attr.cy]="point.y"
-            r="6.5"
-            (pointerdown)="onPointerDown($event, point)">
-            <title>{{ point.email.subject || 'Email' }} — drag to rate</title>
-          </circle>
+          @if (point.bundle) {
+            <circle
+              class="chart-point chart-bundle"
+              [attr.cx]="point.x"
+              [attr.cy]="point.y"
+              r="10"
+              (click)="openBundle(point, $event)">
+              <title>{{ point.bundle.length }} emails — click to list</title>
+            </circle>
+            <text class="chart-bundle-count" [attr.x]="point.x" [attr.y]="point.y + 4" text-anchor="middle">
+              {{ point.bundle.length }}
+            </text>
+          } @else {
+            <circle
+              class="chart-point"
+              [class.chart-point-dragging]="draggingId() === point.email.id"
+              [class.chart-point-saving]="savingId === point.email.id"
+              [class.chart-point-clicked]="isClicked(point.email.id)"
+              [attr.cx]="point.x"
+              [attr.cy]="point.y"
+              r="6.5"
+              (pointerdown)="onPointerDown($event, point)">
+              <title>{{ point.email.subject || 'Email' }} — drag to rate</title>
+            </circle>
+          }
         }
       </svg>
       <ul class="chart-legend">
@@ -99,6 +114,39 @@
           Both
         </li>
       </ul>
+      @if (openedBundle) {
+        <section class="bundle-panel" aria-label="Emails in this bundle">
+          <header class="bundle-head">
+            <strong>{{ openedBundle.length }} emails in this bundle</strong>
+            <button type="button" class="bundle-close" (click)="closeBundle()" aria-label="Close bundle list">×</button>
+          </header>
+          @if (unclickedInBundle().length) {
+            <ul class="bundle-list">
+              @for (email of unclickedInBundle(); track email.id) {
+                <li>
+                  <button type="button" class="bundle-item" (click)="openPoint(email, $event)">
+                    <span class="bundle-subject">{{ email.subject || '(no subject)' }}</span>
+                    <span class="bundle-from">{{ email.fromDisplayName || email.fromAddress || '' }}</span>
+                  </button>
+                </li>
+              }
+            </ul>
+          }
+          @if (clickedInBundle().length) {
+            <h4 class="bundle-section-title">Clicked</h4>
+            <ul class="bundle-list bundle-list-clicked">
+              @for (email of clickedInBundle(); track email.id) {
+                <li>
+                  <button type="button" class="bundle-item" (click)="openPoint(email, $event)">
+                    <span class="bundle-subject">{{ email.subject || '(no subject)' }}</span>
+                    <span class="bundle-from">{{ email.fromDisplayName || email.fromAddress || '' }}</span>
+                  </button>
+                </li>
+              }
+            </ul>
+          }
+        </section>
+      }
       <p class="chart-hint">Drag a point to change its rating. That reorders the lists and is stored for training.</p>
     </div>
   }

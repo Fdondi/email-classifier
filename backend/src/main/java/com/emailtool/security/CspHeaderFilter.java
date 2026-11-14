@@ -14,8 +14,9 @@ import org.springframework.web.filter.OncePerRequestFilter;
 @Order(Ordered.HIGHEST_PRECEDENCE)
 public class CspHeaderFilter extends OncePerRequestFilter {
 
+    // Angular injects component styles as inline <style> at runtime; scripts stay 'self' only.
     static final String APP_CSP =
-            "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; frame-src 'self'; form-action 'none'; base-uri 'none'";
+            "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; connect-src 'self'; frame-src 'self'; form-action 'none'; base-uri 'self'";
     static final String BODY_CSP = "default-src 'none'; img-src data:; style-src 'none'; script-src 'none'";
 
     @Override

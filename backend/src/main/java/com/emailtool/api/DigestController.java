@@ -6,6 +6,8 @@ import com.emailtool.api.dto.EmailSummaryDto;
 import com.emailtool.api.dto.ListRankRequest;
 import com.emailtool.domain.Category;
 import jakarta.validation.Valid;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -26,8 +28,10 @@ public class DigestController {
     }
 
     @GetMapping("/digest")
-    public DigestDto digest(@RequestParam(defaultValue = "false") boolean includeRead) {
-        return digestService.digest(includeRead);
+    public DigestDto digest(
+            @RequestParam(defaultValue = "false") boolean includeRead,
+            @RequestParam(required = false) Instant since) {
+        return digestService.digest(includeRead, since == null ? Instant.now().minus(Duration.ofHours(24)) : since);
     }
 
     @PostMapping("/digest/reorder")
@@ -40,8 +44,9 @@ public class DigestController {
             @PathVariable Category category,
             @RequestParam(defaultValue = "0") int offset,
             @RequestParam(defaultValue = "5") int limit,
-            @RequestParam(defaultValue = "false") boolean includeRead) {
-        return digestService.page(category, offset, limit, includeRead);
+            @RequestParam(defaultValue = "false") boolean includeRead,
+            @RequestParam(required = false) Instant since) {
+        return digestService.page(category, offset, limit, includeRead, since == null ? Instant.now().minus(Duration.ofHours(24)) : since);
     }
 
     @GetMapping("/digest/spam")
@@ -49,7 +54,7 @@ public class DigestController {
             @RequestParam(defaultValue = "0") int offset,
             @RequestParam(defaultValue = "50") int limit,
             @RequestParam(defaultValue = "false") boolean includeRead) {
-        return digestService.page(Category.SPAM, offset, limit, includeRead).items();
+        return digestService.page(Category.SPAM, offset, limit, includeRead, null).items();
     }
 
     @GetMapping("/digest/hidden")

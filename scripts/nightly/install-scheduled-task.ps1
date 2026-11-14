@@ -48,6 +48,28 @@ try {
 }
 Write-Host "  After a successful run: $After"
 Write-Host "  Script: $ScriptPath"
+
+# Watchdog + catch-up: every 15 minutes (and at logon) run-triage.ps1 makes sure the backend and its
+# tray icon are up, then runs triage only if it is due (last success 6 h or more ago, GPU free or CPU
+# RAM enough). It never wakes the PC, and never powers down after a daytime run.
+$CatchUpName = "EmailToolTriageCatchUp"
+$catchUpArg = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$ScriptPath`" -After none"
+$catchUpAction = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $catchUpArg -WorkingDirectory $PSScriptRoot
+$hourly = New-ScheduledTaskTrigger -Daily -At 12:00AM
+$hourly.Repetition = (New-ScheduledTaskTrigger -Once -At 12:00AM `
+        -RepetitionInterval (New-TimeSpan -Minutes 15) -RepetitionDuration (New-TimeSpan -Hours 23 -Minutes 59)).Repetition
+$catchUpSettings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable `
+        -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Hours 8)
+Unregister-ScheduledTask -TaskName $CatchUpName -Confirm:$false -ErrorAction SilentlyContinue
+try {
+    $logon = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
+    $logon.Delay = "PT5M"
+    Register-ScheduledTask -TaskName $CatchUpName -Action $catchUpAction -Trigger @($hourly, $logon) -Settings $catchUpSettings -Principal $principal -Description "Run email-tool triage when 6 h have passed since the last success and the GPU is free" | Out-Null
+    Write-Host "Registered '$CatchUpName': checks every 15 min and 5 min after logon; runs at most once per 6 h"
+} catch {
+    Register-ScheduledTask -TaskName $CatchUpName -Action $catchUpAction -Trigger $hourly -Settings $catchUpSettings -Principal $principal -Description "Run email-tool triage when 6 h have passed since the last success and the GPU is free" | Out-Null
+    Write-Host "Registered '$CatchUpName': checks every 15 min; runs at most once per 6 h (logon trigger needs an elevated PowerShell)"
+}
 Write-Host ""
 Write-Host "Full power-off is BIOS, not Windows. On this Gigabyte Z790 GAMING X AX:"
 Write-Host "  Del → Settings → Platform Power → ErP=Disabled, Resume by Alarm=Enabled, 03:00:00 daily"

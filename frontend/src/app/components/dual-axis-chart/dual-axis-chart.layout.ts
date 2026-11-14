@@ -4,6 +4,8 @@ export const CHART_WIDTH = 640;
 export const CHART_HEIGHT = 340;
 export const CHART_MARGIN = { top: 18, right: 18, bottom: 44, left: 52 };
 export const DUAL_TOP_N = 5;
+/** More emails than this at one spot become a single bundle marker. */
+export const BUNDLE_MIN_SIZE = 3;
 /** Same horizon as IMAP: overdue/today = 1, 14+ days out = 0. */
 export const URGENCY_HORIZON_DAYS = 14;
 
@@ -31,6 +33,8 @@ export interface ChartPoint {
   importance: number;
   inUrgency: boolean;
   inImportance: boolean;
+  /** Set when more than BUNDLE_MIN_SIZE emails share this spot: one marker that lists them. */
+  bundle: EmailSummary[] | null;
 }
 
 export interface DualAxisChartModel {
@@ -202,7 +206,8 @@ export function buildDualAxisChart(
     urgency: item.urgency,
     importance: item.importance,
     inUrgency: urgencyIds.has(item.email.id),
-    inImportance: importanceIds.has(item.email.id)
+    inImportance: importanceIds.has(item.email.id),
+    bundle: null
   }));
 
   return {
@@ -323,6 +328,10 @@ function jitterOverlapping(points: ChartPoint[]): ChartPoint[] {
     const first = group[0];
     if (group.length === 1 && first) {
       result.push(first);
+      continue;
+    }
+    if (group.length > BUNDLE_MIN_SIZE && first) {
+      result.push({ ...first, bundle: group.map((point) => point.email) });
       continue;
     }
     group.forEach((point, index) => {

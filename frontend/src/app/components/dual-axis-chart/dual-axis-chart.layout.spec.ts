@@ -68,6 +68,18 @@ describe('dual-axis-chart layout', () => {
     expect(chart.points.map((point) => point.email.id).sort()).toEqual([1, 2, 3]);
   });
 
+  it('bundles more than three emails at one spot into a single marker', () => {
+    const same = { ratingUrgency: 0.5, ratingImportance: 0.5 };
+    const four = [1, 2, 3, 4].map((id) => email({ id, ...same }));
+    const bundled = buildDualAxisChart({ byUrgency: [], byImportance: [], allEmails: four, total: 4 }, today);
+    expect(bundled.points.length).toBe(1);
+    expect(bundled.points[0]?.bundle?.map((item) => item.id)).toEqual([1, 2, 3, 4]);
+
+    const three = four.slice(0, 3);
+    const spread = buildDualAxisChart({ byUrgency: [], byImportance: [], allEmails: three, total: 3 }, today);
+    expect(spread.points.every((point) => point.bundle === null)).toBe(true);
+  });
+
   it('inverts svg coordinates back to 0-1 ratings', () => {
     const chart = buildDualAxisChart(threeEmailSection(), today);
     const midX = chart.plot.x + chart.plot.w / 2;

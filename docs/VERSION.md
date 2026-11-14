@@ -1,3 +1,14 @@
+0.18.0 - Job proposals carry the posting text from LinkedIn, jobs.ch, jobscout24, Indeed and the other job boards too: each posting sent is opened once in headless Edge (InPrivate, fresh empty profile, cleaned URL without alert sign-in tokens) so letter-writer can rate its fit; pages built by scripts on other sites also go through the browser (app.jobs.browser, app.jobs.browser-domains).
+0.17.0 - Job proposals: up to 10 per 24h, divided by career track: each track first, up to its own daily limit, rated against the track's notes instead of the CV alone, then the general list fills the rest. Tracks (name, daily limit, notes) live in letter-writer's Firestore `personal_data.job_tracks`, not in this repository.
+0.16.0 - Tray icon (hover: last full run, last check, counts; click opens the UI) and the backend jar now serves the UI on 17432 (scripts/dev/build-app.ps1, install-tray-autostart.ps1); job mail is left unscanned when the CV can't be read; Angular 22 / TypeScript 6.
+0.15.3 - Scheduled triage also waits while GPU compute load averages 30% or more over 5 s (-MaxGpuUtilPercent).
+0.15.2 - Scheduled triage checks every 15 minutes and runs at most once per 6 hours; waits (instead of failing) while under 18 GB of GPU memory is free; no-op checks log to results/nightly/checks.log instead of one file each.
+0.15.1 - Triage runs once per day whenever the PC is on: no 02:00-06:00 cut-off, an hourly/at-logon catch-up task retries until the day has succeeded, only night runs hibernate afterwards, and concurrent runs are blocked.
+0.15.0 - After triage, job-offer mail is read for individual postings (local LLM, rated against the letter-writer CV and config/job-profile.md); the best 3 per 24h are proposed to letter-writer's Firestore `opportunities` ("To review"), with page text only where the site allows automated access.
+0.14.0 - Backend API listens on 17432 instead of the crowded default 8080.
+0.13.0 - Triage runs log loading/download start–end times and email-processing average and p90 latency.
+0.12.0 - Script to replace F: Gemma symlink (HDD on E:) with real files on SSD for faster LM Studio load.
+0.11.0 - Triage downloads mail in parallel with loading the chat model onto the GPU.
 0.10.0 - Expired mail is a collapsible subsection, not mixed into the top of each list.
 0.9.0 - Compact email-row actions into icons for hide, category, deadline, action needed, and drag-reorder.
 0.8.1 - Action needed uses the same urgency/importance graph and two lists as events and job offers.

@@ -1,3 +1,6 @@
+server:
+  port: 17432
+
 spring:
   application:
     name: email-tool
@@ -42,6 +45,8 @@ app:
     timeout-seconds: 300
     load-timeout-seconds: 1200
     min-free-vram-mib: 18000
+    # GPU busy: load on CPU instead, if this much RAM is available (model file + KV cache + headroom).
+    min-free-ram-mib: 22000
     auto-load: true
     auto-unload: true
   taxonomy-version: 2
@@ -49,6 +54,23 @@ app:
   body-truncate-chars: 8000
   subject-max-chars: 150
   summary-max-chars: 200
+  jobs:
+    # After each triage: read JOB_OFFERS mail for postings and propose the best to letter-writer
+    # (Firestore `opportunities`, status `proposed` = the app's "To review" list).
+    enabled: true
+    daily-limit: 10
+    # Career tracks and their own quotas come from Firestore personal_data.job_tracks (filled first, within this limit).
+    min-interest: 60
+    lookback-hours: 36
+    profile-file: job-profile.md
+    fetch-postings: true
+    firestore:
+      project-id: gen-lang-client-0535858734
+      database-id: letter
+      collection: opportunities
+      user-id: "107281079540942343648"
+      # Empty: Application Default Credentials (`gcloud auth application-default login`).
+      credentials-file: ""
   schedule-enabled: false
   schedule-cron: "0 30 3 * * *"
   cors-origins: http://localhost:4200

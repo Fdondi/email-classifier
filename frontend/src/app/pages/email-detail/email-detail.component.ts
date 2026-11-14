@@ -1,11 +1,12 @@
 import { DatePipe } from '@angular/common';
-import { Component, OnInit } from '@angular/core';
+import { ChangeDetectionStrategy, Component, OnInit } from '@angular/core';
 import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { CATEGORIES, Category, EmailDetail, categoryLabel } from '../../models/email.model';
 import { ApiService, describeHttpError } from '../../services/api.service';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-email-detail',
   standalone: true,
   imports: [RouterLink, DatePipe],

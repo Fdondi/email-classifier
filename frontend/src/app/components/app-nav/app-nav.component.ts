@@ -1,9 +1,10 @@
-import { Component, Input, OnInit } from '@angular/core';
+import { ChangeDetectionStrategy, Component, Input, OnInit } from '@angular/core';
 import { RouterLink, RouterLinkActive } from '@angular/router';
 import { BUILD_VERSION } from '../../build-version';
 import { ApiService } from '../../services/api.service';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-nav',
   standalone: true,
   imports: [RouterLink, RouterLinkActive],

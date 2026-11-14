@@ -14,6 +14,7 @@ import com.emailtool.job.TriageJobService;
 import com.emailtool.persist.EmailRemoteResourceRepository;
 import com.emailtool.persist.EmailRepository;
 import com.emailtool.rank.RatingScores;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.Comparator;
 import java.util.List;
@@ -68,8 +69,8 @@ public class DigestService {
         this.triageJobService = triageJobService;
     }
 
-    public DigestDto digest(boolean includeRead) {
-        Predicate<Email> shown = shownFilter(includeRead);
+    public DigestDto digest(boolean includeRead, Instant since) {
+        Predicate<Email> shown = shownFilter(includeRead, since);
         List<EmailSummaryDto> quarantine = emailRepository.findAll().stream()
                 .filter(shown)
                 .filter(Email::isInjectionSuspected)
@@ -133,14 +134,14 @@ public class DigestService {
         }
     }
 
-    public CategoryPageDto page(Category category, int offset, int limit, boolean includeRead) {
+    public CategoryPageDto page(Category category, int offset, int limit, boolean includeRead, Instant since) {
         if (limit <= 0 || limit > 50) {
             limit = 5;
         }
         if (offset < 0) {
             offset = 0;
         }
-        Predicate<Email> shown = shownFilter(includeRead);
+        Predicate<Email> shown = shownFilter(includeRead, since);
         List<Email> emails = category == Category.OTHER
                 ? visible(otherDigestEmails(), shown)
                 : visible(emailRepository.findByCategory(category), shown);
@@ -234,11 +235,13 @@ public class DigestService {
         return category != null && category.isAction() && !email.isActionNeeded() && !email.isInjectionSuspected();
     }
 
-    private static Predicate<Email> shownFilter(boolean includeRead) {
+    // since == null means no date limit (the spam page); otherwise only mail sent at or after that instant.
+    private static Predicate<Email> shownFilter(boolean includeRead, Instant since) {
         return email -> email.isDigestVisible()
                 && !email.isUserHidden()
                 && !FixtureMail.isFixture(email)
-                && (includeRead || email.isUnread());
+                && (includeRead || email.isUnread())
+                && (since == null || (email.getDateSent() != null && !email.getDateSent().isBefore(since)));
     }
 
     private static List<Email> visible(List<Email> emails, Predicate<Email> shown) {

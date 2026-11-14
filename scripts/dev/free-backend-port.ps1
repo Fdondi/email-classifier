@@ -1,17 +1,19 @@
 # Stop the email-tool JVM listening on the API port. Does not kill LM Studio or other apps.
-# Spring itself releases the port on a clean shutdown. What usually holds 8080 is a leftover
+# Spring itself releases the port on a clean shutdown. What usually holds 17432 is a leftover
 # forked java.exe after Ctrl+C on mvnw spring-boot:run.
 
 param(
-    [int]$Port = 8080,
+    [int]$Port = 17432,
     [int]$WaitSeconds = 15
 )
 
 $ErrorActionPreference = "Stop"
 
 function Get-ListenPids {
-    $rows = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
-    return @($rows | Select-Object -ExpandProperty OwningProcess -Unique)
+    # No -State Listen: the dual-stack "::" listener shows a blank State here and would be missed.
+    # LocalPort is only ours on the server side; closed connections have owner 0.
+    $rows = Get-NetTCPConnection -LocalPort $Port -ErrorAction SilentlyContinue
+    return @($rows | Select-Object -ExpandProperty OwningProcess -Unique | Where-Object { $_ -ne 0 })
 }
 
 function Get-ProcessRow([int]$Id) {
@@ -19,7 +21,7 @@ function Get-ProcessRow([int]$Id) {
 }
 
 function Test-EmailToolJvm([string]$CommandLine, [string]$Name) {
-    if ($Name -ne "java.exe") {
+    if ($Name -notin @("java.exe", "javaw.exe")) {
         return $false
     }
     if ([string]::IsNullOrWhiteSpace($CommandLine)) {

@@ -1,10 +1,11 @@
-import { Component, OnInit } from '@angular/core';
+import { ChangeDetectionStrategy, Component, OnInit } from '@angular/core';
 import { AppNavComponent } from '../../components/app-nav/app-nav.component';
 import { EmailListComponent } from '../../components/email-list/email-list.component';
 import { EmailSummary, withoutFixtures } from '../../models/email.model';
 import { ApiService } from '../../services/api.service';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-hidden',
   standalone: true,
   imports: [EmailListComponent, AppNavComponent],

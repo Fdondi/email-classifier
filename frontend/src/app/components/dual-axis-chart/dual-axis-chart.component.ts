@@ -1,4 +1,4 @@
-import { Component, ElementRef, EventEmitter, HostListener, Input, Output, ViewChild } from '@angular/core';
+import { ChangeDetectionStrategy, Component, ElementRef, EventEmitter, HostListener, Input, Output, ViewChild } from '@angular/core';
 import { Router } from '@angular/router';
 import { DualAxisSection, EmailSummary } from '../../models/email.model';
 import { ApiService, describeHttpError } from '../../services/api.service';
@@ -12,6 +12,7 @@ import {
 } from './dual-axis-chart.layout';
 
 @Component({
+  changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-dual-axis-chart',
   standalone: true,
   templateUrl: './dual-axis-chart.component.html'
@@ -37,11 +38,39 @@ export class DualAxisChartComponent {
     moved: boolean;
   } | null = null;
   savingId: number | null = null;
+  // Clicked points are remembered per browser so they stay faded after navigating away.
+  private clicked = new Set<number>(loadClicked());
 
   constructor(
     private readonly router: Router,
     private readonly api: ApiService
   ) {}
+
+  isClicked(id: number): boolean {
+    return this.clicked.has(id);
+  }
+
+  /** Emails of the bundle currently open below the chart, or null when none is open. */
+  openedBundle: EmailSummary[] | null = null;
+
+  openBundle(point: ChartPoint, event: MouseEvent): void {
+    event.preventDefault();
+    this.openedBundle = this.openedBundle && point.bundle && this.openedBundle[0]?.id === point.bundle[0]?.id
+      ? null
+      : point.bundle;
+  }
+
+  closeBundle(): void {
+    this.openedBundle = null;
+  }
+
+  unclickedInBundle(): EmailSummary[] {
+    return (this.openedBundle ?? []).filter((email) => !this.clicked.has(email.id));
+  }
+
+  clickedInBundle(): EmailSummary[] {
+    return (this.openedBundle ?? []).filter((email) => this.clicked.has(email.id));
+  }
 
   model(): DualAxisChartModel {
     const chart = buildDualAxisChart(this.section);
@@ -146,6 +175,8 @@ export class DualAxisChartComponent {
     if (event.defaultPrevented || ('button' in event && event.button !== 0)) {
       return;
     }
+    this.clicked.add(email.id);
+    saveClicked(this.clicked);
     if (email.gmailUrl) {
       event.preventDefault();
       window.open(email.gmailUrl, '_blank', 'noopener,noreferrer');
@@ -164,4 +195,23 @@ export class DualAxisChartComponent {
 
 function clampRange(value: number, lo: number, hi: number): number {
   return Math.min(hi, Math.max(lo, value));
+}
+
+const CLICKED_KEY = 'emailtool.chartClicked';
+
+function loadClicked(): number[] {
+  try {
+    const parsed: unknown = JSON.parse(localStorage.getItem(CLICKED_KEY) ?? '[]');
+    return Array.isArray(parsed) ? parsed.filter((id): id is number => typeof id === 'number') : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveClicked(ids: Set<number>): void {
+  try {
+    localStorage.setItem(CLICKED_KEY, JSON.stringify([...ids]));
+  } catch {
+    // Storage may be unavailable (private mode); the fade then lasts only for this page view.
+  }
 }

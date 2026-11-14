@@ -4,6 +4,7 @@ import com.emailtool.config.AppProperties;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.lang.management.ManagementFactory;
 import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -12,6 +13,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.function.LongSupplier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -29,6 +31,7 @@ public class LlmLifecycle implements LlmRuntime {
     private final CommandRunner commands;
     private final ObjectMapper mapper;
     private final RestClient modelsClient;
+    private final LongSupplier freeRamMib;
 
     private enum Phase {
         UNKNOWN,
@@ -40,6 +43,7 @@ public class LlmLifecycle implements LlmRuntime {
     private Phase phase = Phase.UNKNOWN;
     private String lastError;
     private boolean loadedByUs;
+    private boolean loadedOnGpu;
     private String loadedKey;
 
     @Autowired
@@ -53,13 +57,22 @@ public class LlmLifecycle implements LlmRuntime {
                 .baseUrl(properties.getLlm().getBaseUrl())
                 .requestFactory(factory)
                 .build();
+        // Windows: available physical memory (free + standby), same as Task Manager's "Available".
+        this.freeRamMib = () -> ((com.sun.management.OperatingSystemMXBean) ManagementFactory.getOperatingSystemMXBean())
+                .getFreeMemorySize() / (1024 * 1024);
     }
 
-    LlmLifecycle(AppProperties properties, CommandRunner commands, ObjectMapper mapper, RestClient modelsClient) {
+    LlmLifecycle(
+            AppProperties properties,
+            CommandRunner commands,
+            ObjectMapper mapper,
+            RestClient modelsClient,
+            LongSupplier freeRamMib) {
         this.properties = properties;
         this.commands = commands;
         this.mapper = mapper;
         this.modelsClient = modelsClient;
+        this.freeRamMib = freeRamMib;
     }
 
     @Override
@@ -103,13 +116,15 @@ public class LlmLifecycle implements LlmRuntime {
                             loadedKey,
                             unloaded.exitCode(),
                             System.currentTimeMillis() - started);
-                    String remaining = waitForGpuReleased();
+                    // A CPU load never held the GPU; its other user would make this poll time out.
+                    String remaining = loadedOnGpu ? waitForGpuReleased() : null;
                     if (remaining != null) {
                         log.warn("GPU still occupied after unload: {}", remaining);
                     }
                 }
             }
             loadedByUs = false;
+            loadedOnGpu = false;
             loadedKey = null;
             phase = Phase.UNKNOWN;
             lastError = null;
@@ -148,17 +163,25 @@ public class LlmLifecycle implements LlmRuntime {
         }
         Optional<String> gpuBlock = gpuBusyReason();
         if (gpuBlock.isPresent()) {
-            lastError = gpuBlock.get() + ". Did not load the chat model.";
-            return false;
+            // Too little RAM would page the model, and squeeze whatever holds the GPU.
+            long freeRam = freeRamMib.getAsLong();
+            int needRam = properties.getLlm().getMinFreeRamMib();
+            if (freeRam < needRam) {
+                lastError = gpuBlock.get() + ", and only " + freeRam + " MiB RAM free for a CPU load (need "
+                        + needRam + "). Did not load the chat model.";
+                return false;
+            }
         }
         Optional<String> key = resolveModelKey(cli);
         if (key.isEmpty()) {
             lastError = "No Gemma chat model found on disk. lms ls --llm has no gemma model.";
             return false;
         }
-        log.info("Loading chat model {}", key.get());
+        // GPU busy: run from RAM on the CPU instead. Slower, but triage has no latency need.
+        String gpu = gpuBlock.isPresent() ? "off" : "max";
+        log.info("Loading chat model {} (--gpu {}){}", key.get(), gpu, gpuBlock.map(r -> ": " + r).orElse(""));
         CommandRunner.Result loaded = commands.run(
-                List.of(cli.toString(), "load", key.get(), "-y", "--gpu", "max"),
+                List.of(cli.toString(), "load", key.get(), "-y", "--gpu", gpu),
                 Duration.ofSeconds(properties.getLlm().getLoadTimeoutSeconds()));
         if (loaded.exitCode() != 0) {
             lastError = "lms load failed: " + loaded.output().trim();
@@ -170,6 +193,7 @@ public class LlmLifecycle implements LlmRuntime {
         }
         loadedByUs = true;
         loadedKey = key.get();
+        loadedOnGpu = gpuBlock.isEmpty();
         return true;
     }
 
