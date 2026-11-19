@@ -37,8 +37,8 @@
   @if (llmProblem()) {
     <p class="error">{{ llmProblem() }}</p>
   }
-  @if (digest?.lastJobError) {
-    <p class="error">{{ digest?.lastJobError }}</p>
+  @if (digest?.lastJobError; as lastJobError) {
+    <p class="error">{{ lastJobError }}</p>
   }
   @if (job) {
     <p class="muted" [attr.aria-live]="running ? 'polite' : null">
