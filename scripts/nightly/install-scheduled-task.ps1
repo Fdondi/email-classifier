@@ -50,8 +50,8 @@ Write-Host "  After a successful run: $After"
 Write-Host "  Script: $ScriptPath"
 
 # Watchdog + catch-up: every 15 minutes (and at logon) run-triage.ps1 makes sure the backend and its
-# tray icon are up, then runs triage only if it is due (last success 6 h or more ago, GPU free or CPU
-# RAM enough). It never wakes the PC, and never powers down after a daytime run.
+# tray icon are up, then runs triage only if it is due (last success 6 h or more ago) and the GPU is
+# free (never on CPU: see run-triage.ps1). It never wakes the PC, and never powers down after a daytime run.
 $CatchUpName = "EmailToolTriageCatchUp"
 $catchUpArg = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$ScriptPath`" -After none"
 $catchUpAction = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $catchUpArg -WorkingDirectory $PSScriptRoot

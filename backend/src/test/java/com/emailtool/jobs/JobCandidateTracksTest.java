@@ -134,7 +134,7 @@ class JobCandidateTracksTest {
 
     private static JobPostingExtractor.Found found(String title, int score, String track) {
         return new JobPostingExtractor.Found(
-                title, "Acme", "Zürich", "https://jobs.example/" + title, "summary", score, "reason", track);
+                title, "Co " + title, "Zürich", "https://jobs.example/" + title, "summary", score, "reason", track);
     }
 
     private void clean() {

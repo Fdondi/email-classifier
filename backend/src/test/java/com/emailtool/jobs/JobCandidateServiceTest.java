@@ -146,6 +146,42 @@ class JobCandidateServiceTest {
     }
 
     @Test
+    void aCompanyIsSuggestedOnlyOncePerMonthWhateverTheSiteOrTitle() {
+        when(extractor.extract(any(), any(), anyString(), anyString(), anyInt())).thenReturn(Optional.of(List.of(
+                found("Embedded Lead", "UBS AG", "https://a.example/1", 90),
+                found("ML Engineer", "Zühlke", "https://other.example/2", 89),
+                found("Data Engineer", "U.B.S.", "https://c.example/3", 88),
+                found("Tech Lead", "Zuhlke GmbH", "https://d.example/4", 80))));
+        when(queue.propose(any())).thenAnswer(inv -> new OpportunityQueue.Outcome("x", true));
+
+        // Same run: UBS goes once, Zühlke once; the other UBS and Zühlke postings (other title, site, spelling) wait.
+        assertThat(service.run(true, NOW).sent()).isEqualTo(2);
+        verify(queue, times(2)).propose(any());
+        assertThat(postingRepository.findByCanonicalKey("url:https://c.example/3")).get()
+                .extracting(JobPosting::getStatus).isEqualTo(JobPosting.Status.PENDING);
+
+        // 29 days later still held back; after 30 days the company may be suggested again.
+        reFind("url:https://c.example/3", NOW.plus(Duration.ofDays(29)));
+        assertThat(service.run(false, NOW.plus(Duration.ofDays(29))).sent()).isZero();
+        reFind("url:https://c.example/3", NOW.plus(Duration.ofDays(31)));
+        assertThat(service.run(false, NOW.plus(Duration.ofDays(31))).sent()).isEqualTo(1);
+        assertThat(JobCandidateService.companyKey("Acme S.A.")).isEqualTo(JobCandidateService.companyKey("ACME sa"));
+        assertThat(JobCandidateService.companyKey(null)).isEmpty();
+    }
+
+    @Test
+    void aCompanyAlreadyAppliedToInLetterWriterIsNotSuggested() {
+        when(extractor.extract(any(), any(), anyString(), anyString(), anyInt())).thenReturn(Optional.of(List.of(
+                found("Embedded Lead", "Applied AG", "https://a.example/1", 90),
+                found("ML Engineer", "Fresh SA", "https://b.example/2", 80))));
+        when(queue.hasApplied("Applied AG")).thenReturn(true);
+        when(queue.propose(any())).thenAnswer(inv -> new OpportunityQueue.Outcome("x", true));
+
+        assertThat(service.run(true, NOW).sent()).isEqualTo(1);
+        verify(queue, times(1)).propose(argThat(p -> p.company().equals("Fresh SA")));
+    }
+
+    @Test
     void llmFailureLeavesTheMailForTheNextRunAndFirestoreFailureKeepsPostingsPending() {
         when(extractor.extract(argThat(e -> e != null && e.getId().equals(alertA.getId())), any(), anyString(), anyString(), anyInt()))
                 .thenReturn(Optional.empty());
@@ -198,7 +234,18 @@ class JobCandidateServiceTest {
     }
 
     private static JobPostingExtractor.Found found(String title, String url, int score) {
-        return new JobPostingExtractor.Found(title, "Acme", "Zürich", url, "summary", score, "reason", "");
+        return found(title, "Co " + title, url, score);
+    }
+
+    private static JobPostingExtractor.Found found(String title, String company, String url, int score) {
+        return new JobPostingExtractor.Found(title, company, "Zürich", url, "summary", score, "reason", "");
+    }
+
+    private void reFind(String key, Instant at) {
+        postingRepository.findByCanonicalKey(key).ifPresent(p -> {
+            p.setFoundAt(at);
+            postingRepository.save(p);
+        });
     }
 
     private Email save(Category category, Instant sent, Long gmailMsgId) {

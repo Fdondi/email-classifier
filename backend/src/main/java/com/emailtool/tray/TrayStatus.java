@@ -16,12 +16,16 @@ public record TrayStatus(
         long events,
         long jobOffers,
         long unclassified,
-        int runsLast7Days) {
+        int runsLast7Days,
+        /** A triage run is in progress: the backend job, or the nightly script loading the model. */
+        boolean running,
+        /** Next scheduled check from Task Scheduler (null if unknown or the tasks are not installed). */
+        Instant nextCheck) {
 
     public enum Health {
-        /** A full run finished in the last 24 hours and nothing newer failed. */
+        /** A full run finished in the last 12 hours and nothing newer failed. */
         OK,
-        /** No full run yet, or the last one is older than 24 hours. */
+        /** No full run yet, or the last one is older than 12 hours. */
         STALE,
         /** The newest run did not finish cleanly. */
         FAILING

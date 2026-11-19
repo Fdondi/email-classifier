@@ -7,6 +7,8 @@ import com.emailtool.domain.TriageRun;
 import com.emailtool.domain.TriageRunOutcome;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.FileTime;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
@@ -93,5 +95,23 @@ class TrayStatusServiceTest {
         Files.writeString(file, "2026-11-09T14:11:51.1204630+01:00\r\n");
         assertEquals(Instant.parse("2026-11-09T13:11:51.120463Z"), TrayStatusService.lastSuccessMarker(file).orElseThrow());
         assertTrue(TrayStatusService.lastSuccessMarker(dir.resolve("none.txt")).isEmpty());
+    }
+
+    @Test
+    void parsesNextCheckFromTaskScheduler() {
+        assertEquals(Instant.parse("2026-11-15T11:00:00Z"), TrayStatusService.parseNextCheck("2026-11-15T11:00:00.0000000Z\r\n").orElseThrow());
+        assertTrue(TrayStatusService.parseNextCheck("").isEmpty());
+        assertTrue(TrayStatusService.parseNextCheck("Get-ScheduledTaskInfo: not found").isEmpty());
+    }
+
+    @Test
+    void runningMarkerCountsOnlyWhenFresh() throws Exception {
+        Path marker = dir.resolve("running.txt");
+        assertTrue(!TrayStatusService.markerFresh(marker, NOW));
+        Files.writeString(marker, "x");
+        Files.setLastModifiedTime(marker, FileTime.from(NOW.minus(Duration.ofHours(1))));
+        assertTrue(TrayStatusService.markerFresh(marker, NOW));
+        Files.setLastModifiedTime(marker, FileTime.from(NOW.minus(Duration.ofHours(9))));
+        assertTrue(!TrayStatusService.markerFresh(marker, NOW));
     }
 }

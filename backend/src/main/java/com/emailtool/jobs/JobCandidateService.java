@@ -9,14 +9,17 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.text.Normalizer;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.regex.Pattern;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -29,6 +32,10 @@ import org.slf4j.LoggerFactory;
 public class JobCandidateService {
 
     private static final Logger log = LoggerFactory.getLogger(JobCandidateService.class);
+
+    /** shortcut: rolling 30 days, not the calendar month; switch if a company may return on the 1st. */
+    private static final Duration COMPANY_COOLDOWN = Duration.ofDays(30);
+    private static final Pattern LEGAL_FORM = Pattern.compile("\\b(ag|gmbh|sa|sarl|inc|ltd|llc|corp|plc|srl|spa)\\b");
 
     public record RunSummary(int mailsRead, int postingsFound, int sent, int alreadyInApp, List<String> errors) {
         static RunSummary disabled() {
@@ -162,6 +169,7 @@ public class JobCandidateService {
         p.setLinkUrl(f.url());
         p.setTitle(f.title());
         p.setCompany(f.company());
+        p.setCompanyKey(companyKey(f.company()));
         p.setLocation(f.location());
         p.setSummary(f.summary());
         p.setReason(f.reason());
@@ -184,9 +192,12 @@ public class JobCandidateService {
     int[] publish(Instant now, List<OpportunityQueue.Track> tracks, List<String> errors) {
         AppProperties.Jobs cfg = properties.getJobs();
         Instant dayAgo = now.minus(Duration.ofHours(24));
-        List<JobPosting> sentToday = postingRepository.findByStatus(JobPosting.Status.SENT).stream()
-                .filter(p -> p.getSentAt() != null && p.getSentAt().isAfter(dayAgo))
-                .toList();
+        // The job_posting table is the index of what was suggested: one company is suggested once per month.
+        // Rows from before company_key existed: filled once, then this finds nothing.
+        List<JobPosting> unkeyed = postingRepository.findByCompanyKeyIsNull();
+        unkeyed.forEach(p -> p.setCompanyKey(companyKey(p.getCompany())));
+        postingRepository.saveAll(unkeyed);
+        List<JobPosting> sentToday = postingRepository.findByStatusAndSentAtAfter(JobPosting.Status.SENT, dayAgo);
         int remaining = Math.max(0, cfg.getDailyLimit() - sentToday.size());
         if (remaining == 0) {
             return new int[] {0, 0};
@@ -208,6 +219,7 @@ public class JobCandidateService {
         ordered.addAll(candidates.stream().filter(p -> !trackLeft.containsKey(p.getTrack())).toList());
         int sent = 0;
         int already = 0;
+        Map<String, Boolean> appliedElsewhere = new HashMap<>();
         for (JobPosting p : ordered) {
             if (remaining == 0) {
                 break;
@@ -215,7 +227,15 @@ public class JobCandidateService {
             if (trackLeft.getOrDefault(p.getTrack(), 1) == 0) {
                 continue;
             }
+            String company = companyKey(p.getCompany());
+            if (!company.isEmpty() && postingRepository.existsByCompanyKeyAndStatusAndSentAtAfter(
+                    company, JobPosting.Status.SENT, now.minus(COMPANY_COOLDOWN))) {
+                continue;
+            }
             try {
+                if (!company.isEmpty() && appliedElsewhere.computeIfAbsent(company, k -> queue.hasApplied(p.getCompany()))) {
+                    continue;
+                }
                 OpportunityQueue.Outcome outcome = queue.propose(proposal(p));
                 p.setOpportunityId(outcome.opportunityId());
                 p.setError(null);
@@ -240,6 +260,19 @@ public class JobCandidateService {
             }
         }
         return new int[] {sent, already};
+    }
+
+    /** Company name without case, accents, punctuation and legal form ("UBS AG" = "ubs"); "" when unknown. */
+    static String companyKey(String company) {
+        if (company == null) {
+            return "";
+        }
+        String s = Normalizer.normalize(company, Normalizer.Form.NFD)
+                .replaceAll("\\p{M}", "")
+                .toLowerCase(Locale.ROOT)
+                .replace(".", "")
+                .replaceAll("[^a-z0-9]+", " ");
+        return LEGAL_FORM.matcher(s).replaceAll("").replaceAll("\\s+", " ").strip();
     }
 
     private OpportunityQueue.Proposal proposal(JobPosting p) {

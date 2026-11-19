@@ -4,9 +4,11 @@
 #
 # Succeeds at most once per -MinHoursBetween hours (default 6; results\nightly\last-success.txt).
 # Earlier starts exit at once. Failed runs (network) leave no mark, so the next start retries.
-# Exits that do nothing (too soon, GPU busy by day, another run going) append one line to
-# results\nightly\checks.log instead of creating a run log. GPU busy: the model loads on CPU
-# instead (at any hour, if enough RAM is free), and the PC is not powered down afterwards.
+# Exits that do nothing (too soon, GPU busy, another run going) append one line to
+# results\nightly\checks.log instead of creating a run log. GPU busy (usually Salad): wait for the
+# next check, never load on CPU. Salad pauses its GPU work whenever llama-server.exe runs, on GPU
+# or CPU alike, so a CPU run costs Salad as much and lasts longer. The tray warns after 12 h
+# without a run; "Run triage now" there loads on CPU if the GPU is still busy.
 #
 # -After none       leave the PC as-is (default for a manual run)
 # -After hibernate  Windows equivalent of the plan's suspend; Task Scheduler can wake this
@@ -18,8 +20,6 @@ param(
     [string]$After = "none",
     [double]$MinHoursBetween = 6,
     [int]$MinFreeVramMib = 18000,
-    # GPU busy: load on CPU only with this much RAM available (model ~17.2 GiB + KV cache + headroom; not measured).
-    [int]$MinFreeRamMib = 22000,
     [int]$MaxGpuUtilPercent = 30,
     [switch]$Force
 )
@@ -32,6 +32,9 @@ $Stamp = Get-Date -Format "yyyy-MM-dd_HHmmss"
 $LogFile = Join-Path $LogDir "$Stamp.log"
 $ChecksLog = Join-Path $LogDir "checks.log"
 $LockFile = Join-Path $LogDir "last-success.txt"
+# Present while a run is going; the tray icon reads it (covers the model load, before the backend job starts).
+$RunningFile = Join-Path $LogDir "running.txt"
+$script:MarkedRunning = $false
 $BackendUrl = "http://127.0.0.1:17432"
 $LlmUrl = "http://127.0.0.1:1234/v1"
 
@@ -325,26 +328,15 @@ try {
     }
     Write-Log "Triage run starting. repo=$RepoRoot after=$After"
 
-    # Before touching LM Studio or the backend: if something else holds the GPU, run from RAM on
-    # the CPU at any hour. With too little RAM (paging would also squeeze the GPU job), wait for
-    # the next check.
-    $gpu = "max"
+    # Before touching LM Studio or the backend: if something else holds the GPU, wait for the next check.
     $waitReason = Get-GpuWaitReason
     if ($null -ne $waitReason) {
-        # FreePhysicalMemory (KiB) is Task Manager's "Available": free + standby.
-        $freeRamMib = [int]((Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory / 1024)
-        if ($freeRamMib -lt $MinFreeRamMib) {
-            Write-Check "Waiting: $waitReason; only $freeRamMib MiB RAM free for a CPU load, need $MinFreeRamMib."
-            exit 0
-        }
-        $gpu = "off"
-        Write-Log "GPU busy ($waitReason): loading the chat model on CPU."
-        if ($After -ne "none") {
-            Write-Log "Will not $After afterwards: that would kill the job using the GPU."
-            $After = "none"
-        }
+        Write-Check "Waiting: $waitReason."
+        exit 0
     }
     Open-RunLog
+    Set-Content -Path $RunningFile -Value (Get-Date -Format o)
+    $script:MarkedRunning = $true
 
     if (-not (Test-Path $Lms)) {
         throw "LM Studio CLI not found at $Lms"
@@ -357,9 +349,9 @@ try {
     Start-BackendIfNeeded
 
     $modelKey = Get-GemmaKey
-    Write-Log "Loading $modelKey (--gpu $gpu)"
+    Write-Log "Loading $modelKey (--gpu max)"
     & $Lms unload --all
-    & $Lms load $modelKey -y --gpu $gpu
+    & $Lms load $modelKey -y --gpu max
     $deadline = (Get-Date).AddMinutes(20)
     $chatIds = @()
     while ((Get-Date) -lt $deadline) {
@@ -416,4 +408,8 @@ try {
     Write-Log "FAILED: $($_.Exception.Message)"
     try { & $Lms unload --all } catch { }
     exit 1
+}
+finally {
+    # Only the run that wrote the marker removes it (a skipped second start must leave the first one's).
+    if ($script:MarkedRunning) { Remove-Item $RunningFile -ErrorAction SilentlyContinue }
 }

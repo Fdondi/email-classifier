@@ -3,6 +3,7 @@ package com.emailtool.tray;
 import com.emailtool.config.AppProperties;
 import com.emailtool.domain.TriageRun;
 import com.emailtool.domain.TriageRunOutcome;
+import com.emailtool.job.TriageJobService;
 import com.emailtool.persist.EmailRepository;
 import com.emailtool.persist.TriageRunRepository;
 import java.io.IOException;
@@ -16,22 +17,29 @@ import java.time.OffsetDateTime;
 import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.TimeUnit;
 import org.springframework.stereotype.Service;
 
 @Service
 public class TrayStatusService {
 
-    static final Duration STALE_AFTER = Duration.ofHours(24);
+    // Also when the tray warns: scheduled runs wait for a free GPU (never CPU), so a long wait needs the user.
+    static final Duration STALE_AFTER = Duration.ofHours(12);
 
     private final TriageRunRepository runRepository;
     private final EmailRepository emailRepository;
     private final AppProperties properties;
+    private final TriageJobService triageJobService;
 
     public TrayStatusService(
-            TriageRunRepository runRepository, EmailRepository emailRepository, AppProperties properties) {
+            TriageRunRepository runRepository,
+            EmailRepository emailRepository,
+            AppProperties properties,
+            TriageJobService triageJobService) {
         this.runRepository = runRepository;
         this.emailRepository = emailRepository;
         this.properties = properties;
+        this.triageJobService = triageJobService;
     }
 
     public TrayStatus current() {
@@ -88,7 +96,66 @@ public class TrayStatusService {
                 ((Number) totals[1]).longValue(),
                 ((Number) totals[2]).longValue(),
                 emailRepository.countByCategoryIsNull(),
-                runsLast7Days);
+                runsLast7Days,
+                running(Path.of(properties.getNightlyDir(), "running.txt"), now),
+                nextCheck(now));
+    }
+
+    private boolean running(Path marker, Instant now) {
+        return triageJobService.progress().running() || markerFresh(marker, now);
+    }
+
+    /**
+     * run-triage.ps1 keeps results/nightly/running.txt while a run is going (it also covers the model load,
+     * before the backend job starts). A crashed script leaves it behind, so it counts only for 8 h, the
+     * scheduled task's own time limit.
+     */
+    static boolean markerFresh(Path marker, Instant now) {
+        try {
+            return Files.getLastModifiedTime(marker).toInstant().isAfter(now.minus(Duration.ofHours(8)));
+        } catch (IOException e) {
+            return false;
+        }
+    }
+
+    private Instant cachedNext;
+
+    /** Asks Task Scheduler only when the cached time has passed: about once per check, not once per minute. */
+    private synchronized Instant nextCheck(Instant now) {
+        if (cachedNext == null || !cachedNext.isAfter(now)) {
+            cachedNext = queryNextCheck().orElse(null);
+        }
+        return cachedNext;
+    }
+
+    private static Optional<Instant> queryNextCheck() {
+        String script = "'EmailToolTriageCatchUp','EmailToolNightlyTriage' | ForEach-Object { "
+                + "Get-ScheduledTaskInfo -TaskName $_ -ErrorAction SilentlyContinue } "
+                + "| Where-Object { $_.NextRunTime } | Sort-Object NextRunTime | Select-Object -First 1 "
+                + "| ForEach-Object { $_.NextRunTime.ToUniversalTime().ToString('o') }";
+        try {
+            Process p = new ProcessBuilder("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script)
+                    .redirectErrorStream(true)
+                    .start();
+            if (!p.waitFor(20, TimeUnit.SECONDS)) {
+                p.destroyForcibly();
+                return Optional.empty();
+            }
+            return parseNextCheck(new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8));
+        } catch (IOException e) {
+            return Optional.empty();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return Optional.empty();
+        }
+    }
+
+    static Optional<Instant> parseNextCheck(String output) {
+        try {
+            return Optional.of(OffsetDateTime.parse(output.strip()).toInstant());
+        } catch (DateTimeParseException e) {
+            return Optional.empty();
+        }
     }
 
     static TrayStatus.Health health(TriageRun latest, Instant lastFullRun, Instant now) {

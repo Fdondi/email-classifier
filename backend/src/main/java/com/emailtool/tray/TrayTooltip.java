@@ -1,5 +1,6 @@
 package com.emailtool.tray;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -19,17 +20,21 @@ final class TrayTooltip {
     private TrayTooltip() {}
 
     static String tooltip(TrayStatus s, Instant now, ZoneId zone) {
-        String withCounts = String.join(
-                "\n", "Email triage", lastRunLine(s, now, zone), lastCheckLine(s, now, zone), countsLine(s));
-        if (withCounts.length() <= MAX_LENGTH) {
-            return withCounts;
+        String title = s.running() ? "Email triage · running" : "Email triage";
+        // Too long (e.g. "yesterday" dates)? The counts are also in the right-click menu, so drop them first,
+        // then the check note, so the next-check line is never the one cut.
+        String full = String.join(
+                "\n", title, lastRunLine(s, now, zone), lastCheckLine(s, now, zone, true), nextCheckLine(s, now, zone), countsLine(s));
+        String noCounts = String.join(
+                "\n", title, lastRunLine(s, now, zone), lastCheckLine(s, now, zone, true), nextCheckLine(s, now, zone));
+        String noNote = String.join(
+                "\n", title, lastRunLine(s, now, zone), lastCheckLine(s, now, zone, false), nextCheckLine(s, now, zone));
+        for (String text : new String[] {full, noCounts, noNote}) {
+            if (text.length() <= MAX_LENGTH) {
+                return text;
+            }
         }
-        // Too long (e.g. "yesterday" dates): the counts are also in the right-click menu, so drop them first.
-        String withoutCounts =
-                String.join("\n", "Email triage", lastRunLine(s, now, zone), lastCheckLine(s, now, zone));
-        return withoutCounts.length() <= MAX_LENGTH
-                ? withoutCounts
-                : withoutCounts.substring(0, MAX_LENGTH - 1) + "…";
+        return noNote.substring(0, MAX_LENGTH - 1) + "…";
     }
 
     static String lastRunLine(TrayStatus s, Instant now, ZoneId zone) {
@@ -40,12 +45,20 @@ final class TrayTooltip {
     }
 
     static String lastCheckLine(TrayStatus s, Instant now, ZoneId zone) {
+        return lastCheckLine(s, now, zone, true);
+    }
+
+    static String lastCheckLine(TrayStatus s, Instant now, ZoneId zone, boolean withNote) {
         if (s.lastCheck() == null) {
             return "Last check: none yet";
         }
         String line = "Last check: " + when(s.lastCheck(), now, zone);
-        String note = shorten(s.lastCheckNote());
+        String note = withNote ? shorten(s.lastCheckNote()) : "";
         return note.isEmpty() ? line : line + " · " + note;
+    }
+
+    static String nextCheckLine(TrayStatus s, Instant now, ZoneId zone) {
+        return s.nextCheck() == null ? "Next check: unknown" : "Next check: " + when(s.nextCheck(), now, zone);
     }
 
     static String countsLine(TrayStatus s) {
@@ -54,6 +67,22 @@ final class TrayTooltip {
 
     static String weekLine(TrayStatus s) {
         return s.runsLast7Days() + " runs in 7 days · " + s.unclassified() + " not classified";
+    }
+
+    /** No full run for {@link TrayStatusService#STALE_AFTER}, or none yet. */
+    static boolean overdue(TrayStatus s, Instant now) {
+        return s.lastFullRun() == null || s.lastFullRun().isBefore(now.minus(TrayStatusService.STALE_AFTER));
+    }
+
+    static String overdueTitle(TrayStatus s, Instant now) {
+        return s.lastFullRun() == null
+                ? "Email triage has not run yet"
+                : "Email triage has not run for " + Duration.between(s.lastFullRun(), now).toHours() + " h";
+    }
+
+    static String overdueBody(TrayStatus s) {
+        String note = s.lastCheckNote() == null || s.lastCheckNote().isBlank() ? "" : s.lastCheckNote().strip() + "\n";
+        return note + "Right-click → Run triage now. With the GPU busy it runs on CPU, and Salad pauses meanwhile.";
     }
 
     /** "14:11", "yesterday 14:11", "Mon 14:11" within the last week, otherwise "3 Nov 14:11". */

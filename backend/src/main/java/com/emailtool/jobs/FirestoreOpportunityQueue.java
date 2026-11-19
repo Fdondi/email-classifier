@@ -57,6 +57,8 @@ public class FirestoreOpportunityQueue implements OpportunityQueue, AutoCloseabl
                 Map<String, Object> update = new HashMap<>();
                 fillIfEmpty(update, snap, "title", p.title());
                 fillIfEmpty(update, snap, "company", p.company());
+                String company = nullToEmpty(snap.getString("company")).isBlank() ? p.company() : snap.getString("company");
+                fillIfEmpty(update, snap, "company_key", JobCandidateService.companyKey(company));
                 fillIfEmpty(update, snap, "location", p.location());
                 fillIfEmpty(update, snap, "url", p.url());
                 Object ids = snap.get("alert_message_ids");
@@ -90,6 +92,8 @@ public class FirestoreOpportunityQueue implements OpportunityQueue, AutoCloseabl
         doc.put("url", p.url());
         doc.put("title", nullToEmpty(p.title()).strip());
         doc.put("company", nullToEmpty(p.company()).strip());
+        // Extra field for email-tool's own "already applied?" query; letter-writer only ever tx.update()s other fields.
+        doc.put("company_key", JobCandidateService.companyKey(p.company()));
         doc.put("location", nullToEmpty(p.location()).strip());
         doc.put("status", PROPOSED);
         doc.put("skip_reason", null);
@@ -113,6 +117,38 @@ public class FirestoreOpportunityQueue implements OpportunityQueue, AutoCloseabl
         doc.put("created_at", now);
         doc.put("updated_at", now);
         return doc;
+    }
+
+    @Override
+    public boolean hasApplied(String company) {
+        String name = company == null ? "" : company.strip();
+        String key = JobCandidateService.companyKey(name);
+        if (key.isEmpty()) {
+            return false;
+        }
+        try {
+            // company_key is on documents email-tool created or touched since it was added; older ones match by exact name.
+            return appliedWith("company_key", key) || appliedWith("company", name);
+        } catch (ExecutionException | TimeoutException e) {
+            throw new IllegalStateException("Firestore query failed: " + e.getMessage(), e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Firestore query interrupted", e);
+        }
+    }
+
+    /** Equality filters only (no composite index); select() with no fields returns keys, not documents. */
+    private boolean appliedWith(String field, String value)
+            throws ExecutionException, InterruptedException, TimeoutException {
+        return !db().collection(config.getCollection())
+                .whereEqualTo("user_id", requireUserId())
+                .whereEqualTo(field, value)
+                .whereEqualTo("status", "applied")
+                .limit(1)
+                .select(new String[0])
+                .get()
+                .get(30, TimeUnit.SECONDS)
+                .isEmpty();
     }
 
     @Override

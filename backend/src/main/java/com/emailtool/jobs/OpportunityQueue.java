@@ -29,6 +29,14 @@ public interface OpportunityQueue {
      */
     Outcome propose(Proposal proposal);
 
+    /**
+     * Whether an opportunity for this company already has status {@code applied}; at most two
+     * queries, no documents read. Matches the normalised {@code company_key} (documents proposed or
+     * touched by email-tool since it was added) or else the exact name. letter-writer keeps no applied
+     * date, so this is "ever".
+     */
+    boolean hasApplied(String company);
+
     /** Newest CV text from {@code personal_data}, as letter-writer's batch picks it. */
     Optional<String> latestCv();
 

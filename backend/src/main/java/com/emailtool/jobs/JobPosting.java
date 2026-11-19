@@ -44,6 +44,11 @@ public class JobPosting {
 
     private String title;
     private String company;
+
+    /** {@link JobCandidateService#companyKey}: "" when the company is unknown, null only before it was filled in. */
+    @Column(name = "company_key")
+    private String companyKey;
+
     private String location;
     private String summary;
     private String reason;
@@ -130,6 +135,14 @@ public class JobPosting {
 
     public void setCompany(String company) {
         this.company = company;
+    }
+
+    public String getCompanyKey() {
+        return companyKey;
+    }
+
+    public void setCompanyKey(String companyKey) {
+        this.companyKey = companyKey;
     }
 
     public String getLocation() {

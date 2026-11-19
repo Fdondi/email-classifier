@@ -34,7 +34,7 @@ import org.springframework.stereotype.Component;
 import jakarta.annotation.PreDestroy;
 
 /**
- * Windows notification-area icon. Hover: last full run, last check, counts. Click: open the UI.
+ * Windows notification-area icon. Hover: running state, last full run, last check, next check, counts. Click: open the UI.
  * Right-click: menu (open, run triage now, quit). Does nothing when the JVM is headless.
  */
 @Component
@@ -51,8 +51,11 @@ public class TrayService {
     private volatile TrayIcon icon;
     private MenuItem lastRunItem;
     private MenuItem lastCheckItem;
+    private MenuItem nextCheckItem;
     private MenuItem countsItem;
     private MenuItem weekItem;
+    /** The overdue warning was shown; cleared by the next full run (EDT only). */
+    private boolean overdueNotified;
 
     public TrayService(
             TrayStatusService statusService,
@@ -114,10 +117,12 @@ public class TrayService {
             menu.addSeparator();
             lastRunItem = disabledItem();
             lastCheckItem = disabledItem();
+            nextCheckItem = disabledItem();
             countsItem = disabledItem();
             weekItem = disabledItem();
             menu.add(lastRunItem);
             menu.add(lastCheckItem);
+            menu.add(nextCheckItem);
             menu.add(countsItem);
             menu.add(weekItem);
             menu.addSeparator();
@@ -129,7 +134,7 @@ public class TrayService {
             menu.add(quit);
 
             TrayStatus.Health health = status == null ? TrayStatus.Health.STALE : status.health();
-            TrayIcon trayIcon = new TrayIcon(render(health), "Email triage", menu);
+            TrayIcon trayIcon = new TrayIcon(render(health, false), "Email triage", menu);
             trayIcon.setImageAutoSize(true);
             trayIcon.addMouseListener(new MouseAdapter() {
                 @Override
@@ -158,11 +163,20 @@ public class TrayService {
         Instant now = Instant.now();
         ZoneId zone = ZoneId.systemDefault();
         current.setToolTip(TrayTooltip.tooltip(status, now, zone));
-        current.setImage(render(status.health()));
+        current.setImage(render(status.health(), status.running()));
         lastRunItem.setLabel(TrayTooltip.lastRunLine(status, now, zone));
         lastCheckItem.setLabel(TrayTooltip.lastCheckLine(status, now, zone));
+        nextCheckItem.setLabel(TrayTooltip.nextCheckLine(status, now, zone));
         countsItem.setLabel(TrayTooltip.countsLine(status));
         weekItem.setLabel(TrayTooltip.weekLine(status));
+        // Once per overdue spell (and again after a backend restart, e.g. at logon).
+        if (!TrayTooltip.overdue(status, now)) {
+            overdueNotified = false;
+        } else if (!overdueNotified && !status.running()) {
+            overdueNotified = true;
+            current.displayMessage(
+                    TrayTooltip.overdueTitle(status, now), TrayTooltip.overdueBody(status), TrayIcon.MessageType.WARNING);
+        }
     }
 
     private static MenuItem disabledItem() {
@@ -201,8 +215,8 @@ public class TrayService {
         }, "tray-quit").start();
     }
 
-    /** An envelope with a status dot: green = fresh, amber = stale, red = last run failed. */
-    static BufferedImage render(TrayStatus.Health health) {
+    /** An envelope with a status dot: green = fresh, amber = stale, red = last run failed, purple = running. */
+    static BufferedImage render(TrayStatus.Health health, boolean running) {
         int size = 32;
         BufferedImage image = new BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB);
         Graphics2D g = image.createGraphics();
@@ -214,7 +228,7 @@ public class TrayService {
             g.setStroke(new BasicStroke(2.2f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
             g.drawLine(5, 10, 16, 18);
             g.drawLine(16, 18, 27, 10);
-            Color dot = switch (health) {
+            Color dot = running ? new Color(0x8B5CF6) : switch (health) {
                 case OK -> new Color(0x22C55E);
                 case STALE -> new Color(0xF59E0B);
                 case FAILING -> new Color(0xEF4444);
