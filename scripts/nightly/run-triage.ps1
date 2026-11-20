@@ -14,6 +14,8 @@
 # -After hibernate  Windows equivalent of the plan's suspend; Task Scheduler can wake this
 # -After shutdown   real power-off (S5). Windows cannot schedule that; Gigabyte BIOS RTC must
 #                   power the machine on. Then this script shuts down again after a successful run.
+# Either one applies only when the EmailToolNightlyTriage wake timer woke the PC for this run;
+# a PC that was already on stays on.
 
 param(
     [ValidateSet("none", "hibernate", "shutdown")]
@@ -28,7 +30,8 @@ $ErrorActionPreference = "Stop"
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 $Lms = Join-Path $env:USERPROFILE ".cache\lm-studio\bin\lms.exe"
 $LogDir = Join-Path $RepoRoot "results\nightly"
-$Stamp = Get-Date -Format "yyyy-MM-dd_HHmmss"
+$ScriptStart = Get-Date
+$Stamp = $ScriptStart.ToString("yyyy-MM-dd_HHmmss")
 $LogFile = Join-Path $LogDir "$Stamp.log"
 $ChecksLog = Join-Path $LogDir "checks.log"
 $LockFile = Join-Path $LogDir "last-success.txt"
@@ -145,6 +148,18 @@ function Test-ChatModelLoaded {
         )
     }
     return $ids
+}
+
+# True only when the latest resume from sleep/hibernate was this task's wake timer, shortly before
+# the run started. A PC that was already on (or woken by a person) is left on.
+function Test-WokenByThisTask {
+    $wake = Get-WinEvent -FilterHashtable @{ LogName = "System"; ProviderName = "Microsoft-Windows-Power-Troubleshooter"; Id = 1 } -MaxEvents 1 -ErrorAction SilentlyContinue
+    if (-not $wake) {
+        return $false
+    }
+    # Wake Source line reads: Timer - Windows will execute 'EmailToolNightlyTriage' scheduled task ...
+    $minutesBeforeStart = ($ScriptStart - $wake.TimeCreated).TotalMinutes
+    return $minutesBeforeStart -ge -1 -and $minutesBeforeStart -lt 10 -and $wake.Message -match "EmailToolNightlyTriage"
 }
 
 function Test-UserIdleEnoughToPowerOff {
@@ -319,13 +334,6 @@ try {
         }
     }
 
-    # Only a run that started in the night window may power the PC down afterwards.
-    $hour = [int](Get-Date).ToString("HH")
-    $night = $hour -ge 2 -and $hour -le 6
-    if ($After -ne "none" -and -not $night) {
-        Write-Log "Daytime run (hour $hour): will not $After afterwards."
-        $After = "none"
-    }
     Write-Log "Triage run starting. repo=$RepoRoot after=$After"
 
     # Before touching LM Studio or the backend: if something else holds the GPU, wait for the next check.
@@ -389,6 +397,10 @@ try {
     Write-Log "Nightly triage finished"
 
     if ($After -eq "none") {
+        exit 0
+    }
+    if (-not (Test-WokenByThisTask)) {
+        Write-Log "Not powering off: the PC was already on (this task did not wake it)."
         exit 0
     }
     if (-not (Test-UserIdleEnoughToPowerOff)) {
