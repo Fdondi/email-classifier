@@ -29,8 +29,10 @@ if (-not (Test-Path $ScriptPath)) {
     throw "Missing $ScriptPath"
 }
 
-$arg = "-NoProfile -ExecutionPolicy Bypass -File `"$ScriptPath`" -After $After"
-$action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $arg -WorkingDirectory $PSScriptRoot
+# conhost --headless: powershell.exe is a console app, so Task Scheduler would open a console window
+# on every run (-WindowStyle Hidden only hides it after it has flashed up).
+$arg = "--headless powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$ScriptPath`" -After $After"
+$action = New-ScheduledTaskAction -Execute "conhost.exe" -Argument $arg -WorkingDirectory $PSScriptRoot
 $daily = New-ScheduledTaskTrigger -Daily -At 3:05AM
 $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -WakeToRun
 $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Limited
@@ -53,8 +55,8 @@ Write-Host "  Script: $ScriptPath"
 # tray icon are up, then runs triage only if it is due (last success 6 h or more ago) and the GPU is
 # free (never on CPU: see run-triage.ps1). It never wakes the PC, and never powers down after a daytime run.
 $CatchUpName = "EmailToolTriageCatchUp"
-$catchUpArg = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$ScriptPath`" -After none"
-$catchUpAction = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $catchUpArg -WorkingDirectory $PSScriptRoot
+$catchUpArg = "--headless powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$ScriptPath`" -After none"
+$catchUpAction = New-ScheduledTaskAction -Execute "conhost.exe" -Argument $catchUpArg -WorkingDirectory $PSScriptRoot
 $hourly = New-ScheduledTaskTrigger -Daily -At 12:00AM
 $hourly.Repetition = (New-ScheduledTaskTrigger -Once -At 12:00AM `
         -RepetitionInterval (New-TimeSpan -Minutes 15) -RepetitionDuration (New-TimeSpan -Hours 23 -Minutes 59)).Repetition
