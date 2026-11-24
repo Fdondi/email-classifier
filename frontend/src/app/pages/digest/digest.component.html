@@ -127,6 +127,34 @@
       <p class="empty-category">Job offers: nothing.</p>
     }
 
+    @if (learning) {
+      <section class="block">
+        <h2>Application learning</h2>
+        <h3>What the model rating job postings is told</h3>
+        @if (learning.notes) {
+          <p class="learning-notes">{{ learning.notes }}</p>
+        } @else {
+          <p class="empty-category">Nothing: no group of the {{ learning.applications }} applications differs from average by more than one sigma.</p>
+        }
+        <h3>Changes from rejection, interview and application mail</h3>
+        @if (learning.changes.length) {
+          <ul class="learning-changes">
+            @for (c of learning.changes; track c.at + c.change) {
+              <li [title]="c.summary ?? ''">
+                <span class="muted">{{ c.at.slice(0, 10) }}</span>
+                {{ c.change }}
+                @if (c.emailId) {
+                  <a [routerLink]="['/email', c.emailId]">mail</a>
+                }
+              </li>
+            }
+          </ul>
+        } @else {
+          <p class="empty-category">No changes since the backfill.</p>
+        }
+      </section>
+    }
+
     @if (hasSummarized(digest.promotions, 'PROMOTION')) {
       <section class="block">
         <h2>Promotions</h2>

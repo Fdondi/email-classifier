@@ -2,6 +2,7 @@ import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { Injectable } from '@angular/core';
 import { Observable } from 'rxjs';
 import {
+  ApplicationLearning,
   Category,
   CategoryPage,
   Digest,
@@ -98,6 +99,10 @@ export class ApiService {
 
   runs(): Observable<TriageRun[]> {
     return this.http.get<TriageRun[]>('/api/jobs/runs');
+  }
+
+  applicationLearning(): Observable<ApplicationLearning> {
+    return this.http.get<ApplicationLearning>('/api/application-learning');
   }
 }
 

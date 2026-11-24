@@ -17,6 +17,8 @@ public interface JobPostingRepository extends JpaRepository<JobPosting, Long> {
 
     List<JobPosting> findByCompanyKeyIsNull();
 
+    Optional<JobPosting> findFirstByCompanyKeyAndCompanyTypeIsNotNullOrderByIdDesc(String companyKey);
+
     /** Indexed lookup: was this company sent after {@code after}? */
     boolean existsByCompanyKeyAndStatusAndSentAtAfter(String companyKey, JobPosting.Status status, Instant after);
 }

@@ -274,3 +274,19 @@ export function categoryLabel(category: Category | null): string {
     }
   }
 }
+
+/** A mail that changed what past applications teach (rejection, interview, new application). */
+export interface LearningChange {
+  at: string;
+  emailId: number | null;
+  kind: string;
+  summary: string | null;
+  change: string;
+}
+
+export interface ApplicationLearning {
+  applications: number;
+  /** What the model that rates job postings is told; empty when no group stands out. */
+  notes: string;
+  changes: LearningChange[];
+}

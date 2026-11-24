@@ -1,10 +1,12 @@
 import { ChangeDetectionStrategy, Component, ElementRef, OnDestroy, OnInit, ViewChild } from '@angular/core';
+import { RouterLink } from '@angular/router';
 import { Subscription, switchMap, timer } from 'rxjs';
 import { AppNavComponent } from '../../components/app-nav/app-nav.component';
 import { DualAxisChartComponent } from '../../components/dual-axis-chart/dual-axis-chart.component';
 import { EmailListComponent } from '../../components/email-list/email-list.component';
 import { BUILD_VERSION } from '../../build-version';
 import {
+  ApplicationLearning,
   Category,
   Digest,
   DualAxisSection,
@@ -27,7 +29,7 @@ function localDateTime(d: Date): string {
   changeDetection: ChangeDetectionStrategy.Eager,
   selector: 'app-digest',
   standalone: true,
-  imports: [EmailListComponent, AppNavComponent, DualAxisChartComponent],
+  imports: [EmailListComponent, AppNavComponent, DualAxisChartComponent, RouterLink],
   templateUrl: './digest.component.html'
 })
 export class DigestComponent implements OnInit, OnDestroy {
@@ -36,6 +38,7 @@ export class DigestComponent implements OnInit, OnDestroy {
   readonly frontendVersion = BUILD_VERSION;
   digest: Digest | null = null;
   status: SystemStatus | null = null;
+  learning: ApplicationLearning | null = null;
   error: string | null = null;
   running = false;
   includeRead = false;
@@ -64,6 +67,14 @@ export class DigestComponent implements OnInit, OnDestroy {
       },
       error: (err: unknown) => {
         this.error = describeHttpError(err, 'Failed to load digest');
+      }
+    });
+    this.api.applicationLearning().subscribe({
+      next: (learning) => {
+        this.learning = learning;
+      },
+      error: (err: unknown) => {
+        this.error = describeHttpError(err, 'Failed to load application learning');
       }
     });
     this.api.status().subscribe({

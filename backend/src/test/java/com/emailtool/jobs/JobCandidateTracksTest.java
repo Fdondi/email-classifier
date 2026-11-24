@@ -73,7 +73,7 @@ class JobCandidateTracksTest {
 
     @Test
     void eachTrackFillsItsQuotaFirstAndTheGeneralListTakesTheRest() {
-        when(extractor.extract(any(), any(), anyString(), anyString(), anyInt())).thenReturn(Optional.of(List.of(
+        when(extractor.extract(any(), any(), anyString(), anyString(), anyString(), anyInt())).thenReturn(Optional.of(List.of(
                 found("G99", 99, ""),
                 found("G98", 98, ""),
                 found("G97", 97, "astro"),
@@ -94,7 +94,7 @@ class JobCandidateTracksTest {
         verify(extractor).extract(any(), any(), anyString(),
                 argThat(t -> t.contains("<track name=\"alpha\">") && t.contains("<track name=\"beta\">")
                         && t.contains("Beta notes")),
-                anyInt());
+                anyString(), anyInt());
         assertThat(postingRepository.findByCanonicalKey(OpportunityKeys.canonicalKey("https://jobs.example/A85"))).get()
                 .satisfies(p -> {
                     assertThat(p.getStatus()).isEqualTo(JobPosting.Status.PENDING);
@@ -134,7 +134,7 @@ class JobCandidateTracksTest {
 
     private static JobPostingExtractor.Found found(String title, int score, String track) {
         return new JobPostingExtractor.Found(
-                title, "Co " + title, "Zürich", "https://jobs.example/" + title, "summary", score, "reason", track, JobPosting.Region.CH);
+                title, "Co " + title, "Zürich", "https://jobs.example/" + title, "summary", score, "reason", track, JobPosting.Region.CH, null);
     }
 
     private void clean() {

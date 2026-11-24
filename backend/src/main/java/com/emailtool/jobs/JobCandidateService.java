@@ -38,7 +38,9 @@ public class JobCandidateService {
     /** The user's rule: of each day's candidates at most 3 outside Switzerland, at most 1 of them outside Europe. */
     static final int MAX_OUTSIDE_CH = 3;
     static final int MAX_OUTSIDE_EUROPE = 1;
-    private static final Pattern LEGAL_FORM = Pattern.compile("\\b(ag|gmbh|sa|sarl|inc|ltd|llc|corp|plc|srl|spa)\\b");
+    /** Legal forms, plus words that come and go between mentions of one company ("Acme Group AG" = "Acme"), as letter-writer drops them. */
+    private static final Pattern LEGAL_FORM = Pattern.compile(
+            "\\b(ag|gmbh|sa|sarl|inc|ltd|llc|corp|plc|srl|spa|group|holding|schweiz|switzerland|suisse|international)\\b");
 
     public record RunSummary(int mailsRead, int postingsFound, int sent, int alreadyInApp, List<String> errors) {
         static RunSummary disabled() {
@@ -54,6 +56,7 @@ public class JobCandidateService {
     private final JobPostingExtractor extractor;
     private final OpportunityQueue queue;
     private final PostingPageFetcher fetcher;
+    private final ApplicationLearning learning;
 
     public JobCandidateService(
             AppProperties properties,
@@ -63,7 +66,8 @@ public class JobCandidateService {
             MimeParser mimeParser,
             JobPostingExtractor extractor,
             OpportunityQueue queue,
-            PostingPageFetcher fetcher) {
+            PostingPageFetcher fetcher,
+            ApplicationLearning learning) {
         this.properties = properties;
         this.emailRepository = emailRepository;
         this.postingRepository = postingRepository;
@@ -72,6 +76,7 @@ public class JobCandidateService {
         this.extractor = extractor;
         this.queue = queue;
         this.fetcher = fetcher;
+        this.learning = learning;
     }
 
     public boolean isEnabled() {
@@ -83,6 +88,8 @@ public class JobCandidateService {
             return RunSummary.disabled();
         }
         List<String> errors = new ArrayList<>();
+        // First: a rejection that arrived today already counts for today's ratings.
+        String history = learning.refresh(now, llmReady, errors);
         List<OpportunityQueue.Track> tracks;
         try {
             tracks = queue.jobTracks();
@@ -93,7 +100,7 @@ public class JobCandidateService {
         }
         int[] read = {0, 0};
         if (llmReady) {
-            read = readNewMail(now, tracks, errors);
+            read = readNewMail(now, tracks, history, errors);
         }
         int[] sent = publish(now, tracks, errors);
         log.info("Job candidates: read {} mails, found {} postings, sent {}, already in letter-writer {}",
@@ -102,7 +109,7 @@ public class JobCandidateService {
     }
 
     /** Returns {mails read, postings found}. */
-    int[] readNewMail(Instant now, List<OpportunityQueue.Track> tracks, List<String> errors) {
+    int[] readNewMail(Instant now, List<OpportunityQueue.Track> tracks, String history, List<String> errors) {
         AppProperties.Jobs cfg = properties.getJobs();
         Instant since = now.minus(Duration.ofHours(cfg.getLookbackHours()));
         List<Email> mails = new ArrayList<>();
@@ -131,7 +138,7 @@ public class JobCandidateService {
         for (Email email : mails) {
             LinkedText body = linkedText(email);
             Optional<List<JobPostingExtractor.Found>> result =
-                    extractor.extract(email, body, profile, trackNotes, cfg.getMaxBodyChars());
+                    extractor.extract(email, body, profile, trackNotes, history, cfg.getMaxBodyChars());
             if (result.isEmpty()) {
                 // Left unscanned: the next run tries this mail again.
                 errors.add("Job postings: no usable LLM answer for email " + email.getId());
@@ -159,6 +166,7 @@ public class JobCandidateService {
                 p.setReason(f.reason());
                 p.setTrack(track);
                 p.setRegion(f.region());
+                p.setCompanyType(f.companyType());
             }
             if (p.getRegion() == null) {
                 p.setRegion(f.region());
@@ -179,6 +187,7 @@ public class JobCandidateService {
         p.setCompanyKey(companyKey(f.company()));
         p.setLocation(f.location());
         p.setRegion(f.region());
+        p.setCompanyType(f.companyType());
         p.setSummary(f.summary());
         p.setReason(f.reason());
         p.setInterestScore(f.interestScore());
@@ -200,7 +209,7 @@ public class JobCandidateService {
     int[] publish(Instant now, List<OpportunityQueue.Track> tracks, List<String> errors) {
         AppProperties.Jobs cfg = properties.getJobs();
         Instant dayAgo = now.minus(Duration.ofHours(24));
-        // The job_posting table is the index of what was suggested: one company is suggested once per month.
+        // The job_posting table is the index of what was suggested (with job_application, of what was applied to).
         // Rows from before company_key existed: filled once, then this finds nothing.
         List<JobPosting> unkeyed = postingRepository.findByCompanyKeyIsNull();
         unkeyed.forEach(p -> p.setCompanyKey(companyKey(p.getCompany())));
@@ -234,7 +243,6 @@ public class JobCandidateService {
         ordered.addAll(candidates.stream().filter(p -> !trackLeft.containsKey(p.getTrack())).toList());
         int sent = 0;
         int already = 0;
-        Map<String, Boolean> appliedElsewhere = new HashMap<>();
         for (JobPosting p : ordered) {
             if (remaining == 0) {
                 break;
@@ -247,15 +255,14 @@ public class JobCandidateService {
             if ((outsideCh && outsideChLeft <= 0) || (outsideEurope && outsideEuropeLeft <= 0)) {
                 continue;
             }
+            // The only block: a company proposed or applied to in the last 30 days waits until that month is over.
             String company = companyKey(p.getCompany());
-            if (!company.isEmpty() && postingRepository.existsByCompanyKeyAndStatusAndSentAtAfter(
-                    company, JobPosting.Status.SENT, now.minus(COMPANY_COOLDOWN))) {
+            Instant monthAgo = now.minus(COMPANY_COOLDOWN);
+            if (!company.isEmpty() && (postingRepository.existsByCompanyKeyAndStatusAndSentAtAfter(company, JobPosting.Status.SENT, monthAgo)
+                    || learning.appliedSince(company, monthAgo))) {
                 continue;
             }
             try {
-                if (!company.isEmpty() && appliedElsewhere.computeIfAbsent(company, k -> queue.hasApplied(p.getCompany()))) {
-                    continue;
-                }
                 OpportunityQueue.Outcome outcome = queue.propose(proposal(p));
                 p.setOpportunityId(outcome.opportunityId());
                 p.setError(null);
@@ -288,7 +295,7 @@ public class JobCandidateService {
         return new int[] {sent, already};
     }
 
-    /** Company name without case, accents, punctuation and legal form ("UBS AG" = "ubs"); "" when unknown. */
+    /** Company name without case, accents, punctuation and legal form ("QRZ AG" = "qrz"); "" when unknown. */
     static String companyKey(String company) {
         if (company == null) {
             return "";

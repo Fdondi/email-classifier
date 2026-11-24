@@ -3,6 +3,7 @@ package com.emailtool.persist;
 import com.emailtool.domain.Category;
 import com.emailtool.domain.ClassificationSource;
 import com.emailtool.domain.Email;
+import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -12,6 +13,23 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 
 public interface EmailRepository extends JpaRepository<Email, Long> {
+
+    /** Sender, subject and category only: loading Email entities would pull every raw MIME body too. */
+    interface MailHead {
+        Long getId();
+
+        Long getGmailMsgId();
+
+        String getFromAddress();
+
+        String getSubject();
+
+        Instant getDateSent();
+
+        Category getCategory();
+    }
+
+    List<MailHead> findByDateSentAfter(Instant since);
 
     Optional<Email> findByMessageId(String messageId);
 

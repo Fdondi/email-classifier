@@ -96,6 +96,18 @@ public class JobPosting {
         this.region = region;
     }
 
+    /** employer, consultancy or agency (one that does not name its client); null before it was read. */
+    @Column(name = "company_type")
+    private String companyType;
+
+    public String getCompanyType() {
+        return companyType;
+    }
+
+    public void setCompanyType(String companyType) {
+        this.companyType = companyType;
+    }
+
     public String getTrack() {
         return track;
     }

@@ -44,6 +44,8 @@ class JobCandidateServiceTest {
     @Autowired EmailRepository emailRepository;
     @Autowired JobPostingRepository postingRepository;
     @Autowired JobMailScanRepository scanRepository;
+    @Autowired JobApplicationRepository applicationRepository;
+    @Autowired JobApplicationMailRepository applicationMailRepository;
 
     @MockitoBean OpportunityQueue queue;
     @MockitoBean JobPostingExtractor extractor;
@@ -72,12 +74,12 @@ class JobCandidateServiceTest {
 
     @Test
     void readsRecentJobMailOnceAndSendsTheBestPostingsUnderTheDailyCap() {
-        when(extractor.extract(argThat(e -> e != null && e.getId().equals(alertA.getId())), any(), anyString(), anyString(), anyInt()))
+        when(extractor.extract(argThat(e -> e != null && e.getId().equals(alertA.getId())), any(), anyString(), anyString(), anyString(), anyInt()))
                 .thenReturn(Optional.of(List.of(
                         found("Embedded Lead", "https://www.linkedin.com/comm/jobs/view/111?otpToken=SECRET", 90),
                         found("Data Engineer", "https://careers.example.com/jobs/7?utm_source=mail", 70),
                         found("Sales Manager", "https://careers.example.com/jobs/8", 40))));
-        when(extractor.extract(argThat(e -> e != null && e.getId().equals(alertB.getId())), any(), anyString(), anyString(), anyInt()))
+        when(extractor.extract(argThat(e -> e != null && e.getId().equals(alertB.getId())), any(), anyString(), anyString(), anyString(), anyInt()))
                 .thenReturn(Optional.of(List.of(
                         found("ML Engineer", "https://jobs.example.org/ml", 85),
                         found("Data Engineer", "https://careers.example.com/jobs/7", 75))));
@@ -94,9 +96,9 @@ class JobCandidateServiceTest {
         assertThat(first.sent()).isEqualTo(2);
         assertThat(first.alreadyInApp()).isEqualTo(1);
         assertThat(first.errors()).isEmpty();
-        verify(extractor, never()).extract(argThat(e -> e != null && e.getId().equals(oldAlert.getId())), any(), anyString(), anyString(), anyInt());
-        verify(extractor, never()).extract(argThat(e -> e != null && e.getId().equals(newsletter.getId())), any(), anyString(), anyString(), anyInt());
-        verify(extractor, times(2)).extract(any(), any(), eq("CV:\nEmbedded C++ and ML engineer"), eq(""), eq(12000));
+        verify(extractor, never()).extract(argThat(e -> e != null && e.getId().equals(oldAlert.getId())), any(), anyString(), anyString(), anyString(), anyInt());
+        verify(extractor, never()).extract(argThat(e -> e != null && e.getId().equals(newsletter.getId())), any(), anyString(), anyString(), anyString(), anyInt());
+        verify(extractor, times(2)).extract(any(), any(), eq("CV:\nEmbedded C++ and ML engineer"), eq(""), eq(""), eq(12000));
 
         ArgumentCaptor<OpportunityQueue.Proposal> sent = ArgumentCaptor.forClass(OpportunityQueue.Proposal.class);
         verify(queue, times(3)).propose(sent.capture());
@@ -127,7 +129,7 @@ class JobCandidateServiceTest {
 
     @Test
     void capReachedSendsNothingAndFetchedTextGoesAlong() {
-        when(extractor.extract(any(), any(), anyString(), anyString(), anyInt())).thenReturn(Optional.of(List.of(
+        when(extractor.extract(any(), any(), anyString(), anyString(), anyString(), anyInt())).thenReturn(Optional.of(List.of(
                 found("A", "https://a.example/1", 99),
                 found("B", "https://b.example/1", 98),
                 found("C", "https://c.example/1", 97),
@@ -148,14 +150,14 @@ class JobCandidateServiceTest {
 
     @Test
     void aCompanyIsSuggestedOnlyOncePerMonthWhateverTheSiteOrTitle() {
-        when(extractor.extract(any(), any(), anyString(), anyString(), anyInt())).thenReturn(Optional.of(List.of(
-                found("Embedded Lead", "UBS AG", "https://a.example/1", 90),
-                found("ML Engineer", "Zühlke", "https://other.example/2", 89),
-                found("Data Engineer", "U.B.S.", "https://c.example/3", 88),
-                found("Tech Lead", "Zuhlke GmbH", "https://d.example/4", 80))));
+        when(extractor.extract(any(), any(), anyString(), anyString(), anyString(), anyInt())).thenReturn(Optional.of(List.of(
+                found("Embedded Lead", "QRZ AG", "https://a.example/1", 90),
+                found("ML Engineer", "Brückner", "https://other.example/2", 89),
+                found("Data Engineer", "Q.R.Z.", "https://c.example/3", 88),
+                found("Tech Lead", "Bruckner GmbH", "https://d.example/4", 80))));
         when(queue.propose(any())).thenAnswer(inv -> new OpportunityQueue.Outcome("x", true));
 
-        // Same run: UBS goes once, Zühlke once; the other UBS and Zühlke postings (other title, site, spelling) wait.
+        // Same run: QRZ goes once, Brückner once; the other QRZ and Brückner postings (other title, site, spelling) wait.
         assertThat(service.run(true, NOW).sent()).isEqualTo(2);
         verify(queue, times(2)).propose(any());
         assertThat(postingRepository.findByCanonicalKey("url:https://c.example/3")).get()
@@ -172,7 +174,7 @@ class JobCandidateServiceTest {
 
     @Test
     void atMostThreeOutsideSwitzerlandAndOneOutsideEuropeOnlyWithoutVisa() {
-        when(extractor.extract(any(), any(), anyString(), anyString(), anyInt())).thenReturn(Optional.of(List.of(
+        when(extractor.extract(any(), any(), anyString(), anyString(), anyString(), anyInt())).thenReturn(Optional.of(List.of(
                 found("US", "Us", "https://a.example/1", 99, JobPosting.Region.OUTSIDE_EUROPE),
                 found("Where", "Where", "https://a.example/2", 98, JobPosting.Region.UNKNOWN),
                 found("Remote1", "R1", "https://a.example/3", 97, JobPosting.Region.OUTSIDE_EUROPE_NO_VISA),
@@ -198,22 +200,35 @@ class JobCandidateServiceTest {
     }
 
     @Test
-    void aCompanyAlreadyAppliedToInLetterWriterIsNotSuggested() {
-        when(extractor.extract(any(), any(), anyString(), anyString(), anyInt())).thenReturn(Optional.of(List.of(
-                found("Embedded Lead", "Applied AG", "https://a.example/1", 90),
-                found("ML Engineer", "Fresh SA", "https://b.example/2", 80))));
-        when(queue.hasApplied("Applied AG")).thenReturn(true);
+    void aCompanyAppliedToThisMonthWaitsAnEarlierApplicationDoesNotBlock() {
+        when(extractor.extract(any(), any(), anyString(), anyString(), anyString(), anyInt())).thenReturn(Optional.of(List.of(
+                found("Embedded Lead", "Recent AG", "https://a.example/1", 90),
+                found("ML Engineer", "Earlier SA", "https://b.example/2", 80))));
+        applied("Recent AG", NOW.minus(Duration.ofDays(29)));
+        applied("Earlier SA", NOW.minus(Duration.ofDays(31)));
         when(queue.propose(any())).thenAnswer(inv -> new OpportunityQueue.Outcome("x", true));
 
         assertThat(service.run(true, NOW).sent()).isEqualTo(1);
-        verify(queue, times(1)).propose(argThat(p -> p.company().equals("Fresh SA")));
+        verify(queue, times(1)).propose(argThat(p -> p.company().equals("Earlier SA")));
+    }
+
+    private void applied(String company, Instant at) {
+        JobApplication a = new JobApplication();
+        a.company = company;
+        a.companyKey = JobCandidateService.companyKey(company);
+        a.channel = "direct_ats";
+        a.companyType = "employer";
+        a.appliedAt = at;
+        a.stage = "received";
+        a.updatedAt = at;
+        applicationRepository.save(a);
     }
 
     @Test
     void llmFailureLeavesTheMailForTheNextRunAndFirestoreFailureKeepsPostingsPending() {
-        when(extractor.extract(argThat(e -> e != null && e.getId().equals(alertA.getId())), any(), anyString(), anyString(), anyInt()))
+        when(extractor.extract(argThat(e -> e != null && e.getId().equals(alertA.getId())), any(), anyString(), anyString(), anyString(), anyInt()))
                 .thenReturn(Optional.empty());
-        when(extractor.extract(argThat(e -> e != null && e.getId().equals(alertB.getId())), any(), anyString(), anyString(), anyInt()))
+        when(extractor.extract(argThat(e -> e != null && e.getId().equals(alertB.getId())), any(), anyString(), anyString(), anyString(), anyInt()))
                 .thenReturn(Optional.of(List.of(found("A", "https://a.example/1", 99))));
         when(queue.propose(any())).thenThrow(new IllegalStateException("No Google credentials"));
 
@@ -240,7 +255,7 @@ class JobCandidateServiceTest {
         assertThat(run.mailsRead()).isZero();
         assertThat(run.errors()).anyMatch(e -> e.contains("CV unavailable") && e.contains("No Google credentials"));
         assertThat(scanRepository.count()).isZero();
-        verify(extractor, never()).extract(any(), any(), anyString(), anyString(), anyInt());
+        verify(extractor, never()).extract(any(), any(), anyString(), anyString(), anyString(), anyInt());
     }
 
     @Test
@@ -251,14 +266,34 @@ class JobCandidateServiceTest {
 
         assertThat(run.errors()).anyMatch(e -> e.contains("no CV in letter-writer"));
         assertThat(scanRepository.count()).isZero();
-        verify(extractor, never()).extract(any(), any(), anyString(), anyString(), anyInt());
+        verify(extractor, never()).extract(any(), any(), anyString(), anyString(), anyString(), anyInt());
+    }
+
+    @Test
+    void groupsThatStandOutInTheHistoryAreToldToTheModel() {
+        List<java.util.Map<String, Object>> ledger = new java.util.ArrayList<>();
+        for (int i = 0; i < 46; i++) {
+            // 40 companies, half answered; Silentcorp never did, six times.
+            boolean silent = i >= 40;
+            ledger.add(java.util.Map.of("company", silent ? "Silentcorp" : "Co" + i, "title", "", "outcome", java.util.Map.of("stage", "received"),
+                    "ledger", java.util.Map.of("ledger_id", "L" + i, "channel", "direct_ats", "company_type", "employer",
+                            "applied_at", "2026-09-01T00:00:00Z", "result_inferred", !silent && i % 2 == 0 ? "rejected" : "ghosted",
+                            "reached_human", false, "signal_only", false, "events", List.of())));
+        }
+        when(queue.ledgerApplications()).thenReturn(ledger);
+        when(extractor.extract(any(), any(), anyString(), anyString(), anyString(), anyInt())).thenReturn(Optional.of(List.of()));
+
+        service.run(true, NOW);
+
+        verify(extractor, times(2)).extract(any(), any(), anyString(), anyString(),
+                argThat(h -> h.contains("company \"silentcorp\": 0 of 6 got an answer") && h.contains("σ below")), anyInt());
     }
 
     @Test
     void withoutTheModelOnlyAlreadyFoundPostingsAreSent() {
         JobCandidateService.RunSummary run = service.run(false, NOW);
         assertThat(run.mailsRead()).isZero();
-        verify(extractor, never()).extract(any(), any(), anyString(), anyString(), anyInt());
+        verify(extractor, never()).extract(any(), any(), anyString(), anyString(), anyString(), anyInt());
     }
 
     private static JobPostingExtractor.Found found(String title, String url, int score) {
@@ -270,7 +305,7 @@ class JobCandidateServiceTest {
     }
 
     private static JobPostingExtractor.Found found(String title, String company, String url, int score, JobPosting.Region region) {
-        return new JobPostingExtractor.Found(title, company, "Zürich", url, "summary", score, "reason", "", region);
+        return new JobPostingExtractor.Found(title, company, "Zürich", url, "summary", score, "reason", "", region, null);
     }
 
     private void reFind(String key, Instant at) {
@@ -293,6 +328,8 @@ class JobCandidateServiceTest {
     }
 
     private void clean() {
+        applicationRepository.deleteAll();
+        applicationMailRepository.deleteAll();
         postingRepository.deleteAll();
         scanRepository.deleteAll();
         emailRepository.deleteAll(emailRepository.findBySourcePathStartingWith("test-jobs/"));

@@ -1,6 +1,7 @@
 package com.emailtool.jobs;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /** letter-writer's side: the {@code opportunities} collection and the user's CV. */
@@ -29,14 +30,6 @@ public interface OpportunityQueue {
      */
     Outcome propose(Proposal proposal);
 
-    /**
-     * Whether an opportunity for this company already has status {@code applied}; at most two
-     * queries, no documents read. Matches the normalised {@code company_key} (documents proposed or
-     * touched by email-tool since it was added) or else the exact name. letter-writer keeps no applied
-     * date, so this is "ever".
-     */
-    boolean hasApplied(String company);
-
     /** Newest CV text from {@code personal_data}, as letter-writer's batch picks it. */
     Optional<String> latestCv();
 
@@ -45,4 +38,13 @@ public interface OpportunityQueue {
 
     /** The user's career tracks ({@code personal_data.job_tracks}); empty when none are set. */
     List<Track> jobTracks();
+
+    /** {@code application_learning/{user}}: rules, sender rules and reply counts; empty when missing. */
+    Map<String, Object> learning();
+
+    /** Overwrites these fields of the learning document; keys are dotted field paths ("segments.by_channel"). */
+    void updateLearning(Map<String, Object> fields);
+
+    /** Jobs with a Gmail backfill record: their {@code company}, {@code title}, {@code outcome} and {@code ledger}. */
+    List<Map<String, Object>> ledgerApplications();
 }

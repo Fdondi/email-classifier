@@ -1,6 +1,7 @@
 package com.emailtool.jobs;
 
 import com.emailtool.config.AppProperties;
+import com.google.api.core.ApiFuture;
 import com.google.auth.oauth2.GoogleCredentials;
 import com.google.cloud.Timestamp;
 import com.google.cloud.firestore.DocumentReference;
@@ -30,6 +31,8 @@ public class FirestoreOpportunityQueue implements OpportunityQueue, AutoCloseabl
 
     static final String PROPOSED = "proposed";
     static final String VIA = "email-tool";
+    /** One document per user, outside {@code opportunities} so neither app's merges touch it. */
+    static final String LEARNING = "application_learning";
 
     private final AppProperties.Firestore config;
     private volatile Firestore db;
@@ -57,8 +60,6 @@ public class FirestoreOpportunityQueue implements OpportunityQueue, AutoCloseabl
                 Map<String, Object> update = new HashMap<>();
                 fillIfEmpty(update, snap, "title", p.title());
                 fillIfEmpty(update, snap, "company", p.company());
-                String company = nullToEmpty(snap.getString("company")).isBlank() ? p.company() : snap.getString("company");
-                fillIfEmpty(update, snap, "company_key", JobCandidateService.companyKey(company));
                 fillIfEmpty(update, snap, "location", p.location());
                 fillIfEmpty(update, snap, "url", p.url());
                 Object ids = snap.get("alert_message_ids");
@@ -92,8 +93,6 @@ public class FirestoreOpportunityQueue implements OpportunityQueue, AutoCloseabl
         doc.put("url", p.url());
         doc.put("title", nullToEmpty(p.title()).strip());
         doc.put("company", nullToEmpty(p.company()).strip());
-        // Extra field for email-tool's own "already applied?" query; letter-writer only ever tx.update()s other fields.
-        doc.put("company_key", JobCandidateService.companyKey(p.company()));
         doc.put("location", nullToEmpty(p.location()).strip());
         doc.put("status", PROPOSED);
         doc.put("skip_reason", null);
@@ -117,38 +116,6 @@ public class FirestoreOpportunityQueue implements OpportunityQueue, AutoCloseabl
         doc.put("created_at", now);
         doc.put("updated_at", now);
         return doc;
-    }
-
-    @Override
-    public boolean hasApplied(String company) {
-        String name = company == null ? "" : company.strip();
-        String key = JobCandidateService.companyKey(name);
-        if (key.isEmpty()) {
-            return false;
-        }
-        try {
-            // company_key is on documents email-tool created or touched since it was added; older ones match by exact name.
-            return appliedWith("company_key", key) || appliedWith("company", name);
-        } catch (ExecutionException | TimeoutException e) {
-            throw new IllegalStateException("Firestore query failed: " + e.getMessage(), e);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new IllegalStateException("Firestore query interrupted", e);
-        }
-    }
-
-    /** Equality filters only (no composite index); select() with no fields returns keys, not documents. */
-    private boolean appliedWith(String field, String value)
-            throws ExecutionException, InterruptedException, TimeoutException {
-        return !db().collection(config.getCollection())
-                .whereEqualTo("user_id", requireUserId())
-                .whereEqualTo(field, value)
-                .whereEqualTo("status", "applied")
-                .limit(1)
-                .select(new String[0])
-                .get()
-                .get(30, TimeUnit.SECONDS)
-                .isEmpty();
     }
 
     @Override
@@ -186,6 +153,41 @@ public class FirestoreOpportunityQueue implements OpportunityQueue, AutoCloseabl
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new IllegalStateException("Interrupted reading the job tracks", e);
+        }
+    }
+
+    @Override
+    public Map<String, Object> learning() {
+        DocumentSnapshot snap = await(db().collection(LEARNING).document(requireUserId()).get(), "read the learning document");
+        return snap.exists() ? snap.getData() : Map.of();
+    }
+
+    @Override
+    public void updateLearning(Map<String, Object> fields) {
+        await(db().collection(LEARNING).document(requireUserId()).update(fields), "update the learning document");
+    }
+
+    @Override
+    public List<Map<String, Object>> ledgerApplications() {
+        // One read of every job of the user (a few hundred), done once to seed the local table.
+        return await(db().collection(config.getCollection())
+                        .whereEqualTo("user_id", requireUserId())
+                        .select("company", "title", "outcome", "ledger")
+                        .get(), "read the backfilled applications")
+                .getDocuments().stream()
+                .map(DocumentSnapshot::getData)
+                .filter(d -> d != null && d.get("ledger") instanceof Map)
+                .toList();
+    }
+
+    private static <T> T await(ApiFuture<T> future, String what) {
+        try {
+            return future.get(60, TimeUnit.SECONDS);
+        } catch (ExecutionException | TimeoutException e) {
+            throw new IllegalStateException("Could not " + what + " in Firestore: " + e.getMessage(), e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Interrupted: " + what, e);
         }
     }
 

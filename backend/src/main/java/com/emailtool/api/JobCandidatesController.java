@@ -1,5 +1,6 @@
 package com.emailtool.api;
 
+import com.emailtool.jobs.ApplicationLearning;
 import com.emailtool.jobs.JobPosting;
 import com.emailtool.jobs.JobPostingRepository;
 import java.time.Instant;
@@ -9,7 +10,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-/** Postings found in job mail and whether they went to letter-writer (read-only). */
+/** Postings found in job mail, whether they went to letter-writer, and what application outcomes changed (read-only). */
 @RestController
 @RequestMapping("/api")
 public class JobCandidatesController {
@@ -32,10 +33,26 @@ public class JobCandidatesController {
             String capture,
             String error) {}
 
-    private final JobPostingRepository repository;
+    /** A mail that changed what past applications teach (the UI's "Application learning" box). */
+    public record LearningChangeDto(Instant at, Long emailId, String kind, String summary, String change) {}
 
-    public JobCandidatesController(JobPostingRepository repository) {
+    /** {@code notes}: what the model that rates postings is told about past applications. */
+    public record LearningDto(long applications, String notes, List<LearningChangeDto> changes) {}
+
+    private final JobPostingRepository repository;
+    private final ApplicationLearning learning;
+
+    public JobCandidatesController(JobPostingRepository repository, ApplicationLearning learning) {
         this.repository = repository;
+        this.learning = learning;
+    }
+
+    @GetMapping("/application-learning")
+    public LearningDto learning() {
+        ApplicationLearning.Overview o = learning.overview();
+        return new LearningDto(o.applications(), o.notes(), o.changes().stream()
+                .map(m -> new LearningChangeDto(m.getAt(), m.getEmailId(), m.getKind(), m.getSummary(), m.getChange()))
+                .toList());
     }
 
     @GetMapping("/job-candidates")

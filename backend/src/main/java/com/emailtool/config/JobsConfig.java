@@ -2,13 +2,17 @@ package com.emailtool.config;
 
 import com.emailtool.classify.LlmClassifier;
 import com.emailtool.ingest.MimeParser;
+import com.emailtool.jobs.ApplicationLearning;
 import com.emailtool.jobs.FirestoreOpportunityQueue;
 import com.emailtool.jobs.HeadlessBrowser;
+import com.emailtool.jobs.JobApplicationMailRepository;
+import com.emailtool.jobs.JobApplicationRepository;
 import com.emailtool.jobs.JobCandidateService;
 import com.emailtool.jobs.JobMailScanRepository;
 import com.emailtool.jobs.JobPostingExtractor;
 import com.emailtool.jobs.JobPostingRepository;
 import com.emailtool.jobs.OpportunityQueue;
+import com.emailtool.jobs.OutcomeMailReader;
 import com.emailtool.jobs.PostingPageFetcher;
 import com.emailtool.normalize.HiddenContentStripper;
 import com.emailtool.persist.EmailRepository;
@@ -40,6 +44,23 @@ public class JobsConfig {
     }
 
     @Bean
+    OutcomeMailReader outcomeMailReader(LlmClassifier llmClassifier, ObjectMapper mapper) {
+        return new OutcomeMailReader(llmClassifier, mapper);
+    }
+
+    @Bean
+    ApplicationLearning applicationLearning(
+            AppProperties properties,
+            OpportunityQueue queue,
+            JobApplicationRepository applications,
+            JobApplicationMailRepository mails,
+            JobPostingRepository postings,
+            EmailRepository emails,
+            OutcomeMailReader reader) {
+        return new ApplicationLearning(properties, queue, applications, mails, postings, emails, reader);
+    }
+
+    @Bean
     JobCandidateService jobCandidateService(
             AppProperties properties,
             EmailRepository emailRepository,
@@ -48,8 +69,9 @@ public class JobsConfig {
             MimeParser mimeParser,
             JobPostingExtractor extractor,
             OpportunityQueue queue,
-            PostingPageFetcher fetcher) {
+            PostingPageFetcher fetcher,
+            ApplicationLearning learning) {
         return new JobCandidateService(
-                properties, emailRepository, postingRepository, scanRepository, mimeParser, extractor, queue, fetcher);
+                properties, emailRepository, postingRepository, scanRepository, mimeParser, extractor, queue, fetcher, learning);
     }
 }
