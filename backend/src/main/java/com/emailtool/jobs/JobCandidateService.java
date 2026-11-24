@@ -35,6 +35,9 @@ public class JobCandidateService {
 
     /** shortcut: rolling 30 days, not the calendar month; switch if a company may return on the 1st. */
     private static final Duration COMPANY_COOLDOWN = Duration.ofDays(30);
+    /** The user's rule: of each day's candidates at most 3 outside Switzerland, at most 1 of them outside Europe. */
+    static final int MAX_OUTSIDE_CH = 3;
+    static final int MAX_OUTSIDE_EUROPE = 1;
     private static final Pattern LEGAL_FORM = Pattern.compile("\\b(ag|gmbh|sa|sarl|inc|ltd|llc|corp|plc|srl|spa)\\b");
 
     public record RunSummary(int mailsRead, int postingsFound, int sent, int alreadyInApp, List<String> errors) {
@@ -155,6 +158,10 @@ public class JobCandidateService {
                 p.setSummary(f.summary());
                 p.setReason(f.reason());
                 p.setTrack(track);
+                p.setRegion(f.region());
+            }
+            if (p.getRegion() == null) {
+                p.setRegion(f.region());
             }
             if (p.getStatus() == JobPosting.Status.PENDING) {
                 p.setFoundAt(now);
@@ -171,6 +178,7 @@ public class JobCandidateService {
         p.setCompany(f.company());
         p.setCompanyKey(companyKey(f.company()));
         p.setLocation(f.location());
+        p.setRegion(f.region());
         p.setSummary(f.summary());
         p.setReason(f.reason());
         p.setInterestScore(f.interestScore());
@@ -207,10 +215,17 @@ public class JobCandidateService {
             long used = sentToday.stream().filter(p -> t.name().equals(p.getTrack())).count();
             trackLeft.put(t.name(), (int) Math.max(0, t.dailyLimit() - used));
         }
+        // Sent before regions were read (null) counts as outside Switzerland: the cap errs on the safe side.
+        int outsideChLeft = MAX_OUTSIDE_CH - (int) sentToday.stream().filter(p -> p.getRegion() != JobPosting.Region.CH).count();
+        int outsideEuropeLeft = MAX_OUTSIDE_EUROPE - (int) sentToday.stream()
+                .filter(p -> p.getRegion() == JobPosting.Region.OUTSIDE_EUROPE_NO_VISA).count();
         Instant freshSince = now.minus(Duration.ofHours(cfg.getLookbackHours()));
         List<JobPosting> candidates = postingRepository.findByStatus(JobPosting.Status.PENDING).stream()
                 .filter(p -> p.getInterestScore() >= cfg.getMinInterest())
                 .filter(p -> p.getFoundAt() != null && !p.getFoundAt().isBefore(freshSince))
+                // Outside Europe only when the posting says no visa is needed; unknown places are not guessed.
+                .filter(p -> p.getRegion() == JobPosting.Region.CH || p.getRegion() == JobPosting.Region.EUROPE
+                        || p.getRegion() == JobPosting.Region.OUTSIDE_EUROPE_NO_VISA)
                 .sorted(Comparator.comparingInt(JobPosting::getInterestScore).reversed()
                         .thenComparing(JobPosting::getFoundAt, Comparator.reverseOrder()))
                 .toList();
@@ -225,6 +240,11 @@ public class JobCandidateService {
                 break;
             }
             if (trackLeft.getOrDefault(p.getTrack(), 1) == 0) {
+                continue;
+            }
+            boolean outsideCh = p.getRegion() != JobPosting.Region.CH;
+            boolean outsideEurope = p.getRegion() == JobPosting.Region.OUTSIDE_EUROPE_NO_VISA;
+            if ((outsideCh && outsideChLeft <= 0) || (outsideEurope && outsideEuropeLeft <= 0)) {
                 continue;
             }
             String company = companyKey(p.getCompany());
@@ -245,6 +265,12 @@ public class JobCandidateService {
                     sent++;
                     remaining--;
                     trackLeft.computeIfPresent(p.getTrack(), (t, left) -> left - 1);
+                    if (outsideCh) {
+                        outsideChLeft--;
+                    }
+                    if (outsideEurope) {
+                        outsideEuropeLeft--;
+                    }
                 } else {
                     p.setStatus(JobPosting.Status.ALREADY_IN_APP);
                     already++;

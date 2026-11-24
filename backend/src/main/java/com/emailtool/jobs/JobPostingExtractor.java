@@ -31,13 +31,19 @@ public class JobPostingExtractor {
             the link's text.
 
             Reply with one JSON object only, no markdown:
-            {"postings":[{"title":"","company":"","location":"","link":"L7","summary":"","track":"","interest_score":0,"reason":""}]}
+            {"postings":[{"title":"","company":"","location":"","link":"L7","region":"CH","summary":"","track":"","interest_score":0,"reason":""}]}
 
             - One entry per concrete job opening (a role at an employer). Skip newsletters,
               courses, events, ads, "see all jobs" or search-result links, profile or settings
               links, and unsubscribe links.
             - link: the marker of the link that opens this specific posting (its title, "View
               job", "Apply"), without brackets; null when the posting has no own link.
+            - region: where the person would work. "CH": Switzerland (a Swiss town alone is CH),
+              or remote from Switzerland. "EUROPE": anywhere else in geographic Europe (UK
+              included), or remote from Europe. "OUTSIDE_EUROPE_NO_VISA": outside Europe, and the
+              posting itself states that EU citizens need no visa or work permit for it.
+              "OUTSIDE_EUROPE": any other place outside Europe. "UNKNOWN": neither the location
+              nor the rest of the email (job board country, company office) tells.
             - summary: at most 25 words, factual: seniority, domain and stack, workload, salary if
               stated.
             - track: the name of the one track whose notes say this kind of role counts for it;
@@ -64,7 +70,7 @@ public class JobPostingExtractor {
     /** A posting as the model reported it, its link resolved from the marker. */
     public record Found(
             String title, String company, String location, String url, String summary, int interestScore, String reason,
-            String track) {}
+            String track, JobPosting.Region region) {}
 
     /**
      * Empty when the model was unavailable or answered nonsense (the mail is retried next run).
@@ -112,9 +118,18 @@ public class JobPostingExtractor {
             int score = p.interestScore() == null ? 0 : Math.max(0, Math.min(100, p.interestScore()));
             out.add(new Found(
                     trim(p.title(), 300), trim(p.company(), 200), trim(p.location(), 200), url,
-                    trim(p.summary(), 400), score, trim(p.reason(), 300), trim(p.track(), 50).toLowerCase(Locale.ROOT)));
+                    trim(p.summary(), 400), score, trim(p.reason(), 300), trim(p.track(), 50).toLowerCase(Locale.ROOT),
+                    region(p.region())));
         }
         return Optional.of(out);
+    }
+
+    private static JobPosting.Region region(String s) {
+        try {
+            return JobPosting.Region.valueOf(s.strip().toUpperCase(Locale.ROOT));
+        } catch (RuntimeException e) {
+            return JobPosting.Region.UNKNOWN;
+        }
     }
 
     static Map<String, Object> responseFormat() {
@@ -124,12 +139,14 @@ public class JobPostingExtractor {
                 "title", Map.of("type", "string"),
                 "company", Map.of("type", "string"),
                 "location", Map.of("type", "string"),
+                "region", Map.of("type", "string", "enum",
+                        java.util.Arrays.stream(JobPosting.Region.values()).map(Enum::name).toList()),
                 "link", Map.of("type", List.of("string", "null")),
                 "summary", Map.of("type", "string"),
                 "track", Map.of("type", "string"),
                 "interest_score", Map.of("type", "integer"),
                 "reason", Map.of("type", "string")));
-        posting.put("required", List.of("title", "company", "location", "link", "summary", "track", "interest_score", "reason"));
+        posting.put("required", List.of("title", "company", "location", "region", "link", "summary", "track", "interest_score", "reason"));
         posting.put("additionalProperties", false);
         Map<String, Object> schema = new HashMap<>();
         schema.put("type", "object");
@@ -165,6 +182,7 @@ public class JobPostingExtractor {
             String title,
             String company,
             String location,
+            String region,
             String link,
             String summary,
             String track,

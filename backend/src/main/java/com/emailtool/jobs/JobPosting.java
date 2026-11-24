@@ -24,6 +24,9 @@ public class JobPosting {
         FAILED
     }
 
+    /** Where the job is, as the model read it (Swiss town names, "Remote", "EMEA" need judgement). */
+    public enum Region { CH, EUROPE, OUTSIDE_EUROPE_NO_VISA, OUTSIDE_EUROPE, UNKNOWN }
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
@@ -79,6 +82,18 @@ public class JobPosting {
 
     public Long getId() {
         return id;
+    }
+
+    /** Null for postings found before regions were read: never sent. */
+    @Enumerated(EnumType.STRING)
+    private Region region;
+
+    public Region getRegion() {
+        return region;
+    }
+
+    public void setRegion(Region region) {
+        this.region = region;
     }
 
     public String getTrack() {

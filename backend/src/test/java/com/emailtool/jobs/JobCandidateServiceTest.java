@@ -40,6 +40,7 @@ class JobCandidateServiceTest {
     private static final Instant NOW = Instant.parse("2026-11-08T03:30:00Z");
 
     @Autowired JobCandidateService service;
+    @Autowired com.emailtool.config.AppProperties properties;
     @Autowired EmailRepository emailRepository;
     @Autowired JobPostingRepository postingRepository;
     @Autowired JobMailScanRepository scanRepository;
@@ -170,6 +171,33 @@ class JobCandidateServiceTest {
     }
 
     @Test
+    void atMostThreeOutsideSwitzerlandAndOneOutsideEuropeOnlyWithoutVisa() {
+        when(extractor.extract(any(), any(), anyString(), anyString(), anyInt())).thenReturn(Optional.of(List.of(
+                found("US", "Us", "https://a.example/1", 99, JobPosting.Region.OUTSIDE_EUROPE),
+                found("Where", "Where", "https://a.example/2", 98, JobPosting.Region.UNKNOWN),
+                found("Remote1", "R1", "https://a.example/3", 97, JobPosting.Region.OUTSIDE_EUROPE_NO_VISA),
+                found("Remote2", "R2", "https://a.example/4", 96, JobPosting.Region.OUTSIDE_EUROPE_NO_VISA),
+                found("London", "L", "https://a.example/5", 95, JobPosting.Region.EUROPE),
+                found("Berlin", "B", "https://a.example/6", 94, JobPosting.Region.EUROPE),
+                found("Paris", "P", "https://a.example/7", 93, JobPosting.Region.EUROPE),
+                found("Zug", "Z", "https://a.example/8", 92, JobPosting.Region.CH))));
+        when(queue.propose(any())).thenAnswer(inv -> new OpportunityQueue.Outcome("x", true));
+
+        properties.getJobs().setDailyLimit(10);
+        try {
+            service.run(true, NOW);
+        } finally {
+            properties.getJobs().setDailyLimit(3);
+        }
+
+        // US needs a visa, Where is unknown, Remote2 is a second non-Europe one, Paris a fourth outside CH.
+        ArgumentCaptor<OpportunityQueue.Proposal> sent = ArgumentCaptor.forClass(OpportunityQueue.Proposal.class);
+        verify(queue, times(4)).propose(sent.capture());
+        assertThat(sent.getAllValues()).extracting(OpportunityQueue.Proposal::title)
+                .containsExactly("Remote1", "London", "Berlin", "Zug");
+    }
+
+    @Test
     void aCompanyAlreadyAppliedToInLetterWriterIsNotSuggested() {
         when(extractor.extract(any(), any(), anyString(), anyString(), anyInt())).thenReturn(Optional.of(List.of(
                 found("Embedded Lead", "Applied AG", "https://a.example/1", 90),
@@ -238,7 +266,11 @@ class JobCandidateServiceTest {
     }
 
     private static JobPostingExtractor.Found found(String title, String company, String url, int score) {
-        return new JobPostingExtractor.Found(title, company, "Zürich", url, "summary", score, "reason", "");
+        return found(title, company, url, score, JobPosting.Region.CH);
+    }
+
+    private static JobPostingExtractor.Found found(String title, String company, String url, int score, JobPosting.Region region) {
+        return new JobPostingExtractor.Found(title, company, "Zürich", url, "summary", score, "reason", "", region);
     }
 
     private void reFind(String key, Instant at) {
